@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Southend Ticket Stats{% endblock %}</title>
+<meta name="description" content="Live ticket availability for Southend United home fixtures at Roots Hall.">
+<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="{{ url_for('home') }}">
+      <span class="brand__mark" aria-hidden="true"></span>
+      <span class="brand__text">Southend <strong>Ticket Stats</strong></span>
+    </a>
+    {% block nav %}{% endblock %}
+  </div>
+</header>
+
+<main class="wrap">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer wrap">
+  <p>
+    Ticket data read live from
+    <a href="https://southendunitedfc.ktckts.com/brand/match-tickets" rel="noopener">southendunitedfc.ktckts.com</a>.
+    &ldquo;Sold&rdquo; means a seat is no longer buyable, whether it went to a
+    season-ticket holder or sold last night. Blocks that carry no sellable
+    inventory are excluded.
+  </p>
+  <p class="footer__meta">
+    Not affiliated with or endorsed by Southend United Football Club.
+    &middot; <a href="https://github.com/Chr12t0pher/SouthendTicketing" rel="noopener">Source on GitHub</a>
+  </p>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

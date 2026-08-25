@@ -1,13 +1,12 @@
-FROM python:3-stretch
+FROM python:3.13-slim
 
-RUN mkdir /opt/app
-COPY . /opt/app
 WORKDIR /opt/app
 
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
-RUN pip install -r requirements.txt
-RUN pip install gunicorn
+COPY . .
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "wsgi:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "wsgi:app"]

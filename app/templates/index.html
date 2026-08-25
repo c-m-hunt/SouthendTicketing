@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+
+{% block title %}{% if fixture %}{{ fixture.title }} &middot; {% endif %}Southend Ticket Stats{% endblock %}
+
+{% block nav %}
+  {% if fixtures %}
+  <div class="fixture-select">
+    <label for="fixture">Fixture</label>
+    <select id="fixture" data-current="{{ fixture.code if fixture else '' }}">
+      {% for f in fixtures %}
+        <option value="{{ f.code }}" {% if fixture and f.code == fixture.code %}selected{% endif %}>
+          {{ f.opponent or f.title }} &mdash; {{ f.kickoff.strftime('%a %-d %b') if f.kickoff else 'TBC' }}
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if not fixture %}
+
+  <div class="panel panel--empty">
+    <h1>No fixtures on sale</h1>
+    <p>Nothing is currently listed on the club&rsquo;s ticketing site.</p>
+  </div>
+
+{% else %}
+
+  <section class="hero" data-code="{{ fixture.code }}">
+    <div class="hero__head">
+      {% if fixture.away_crest %}
+        <img class="hero__crest" src="{{ fixture.away_crest }}" alt="" loading="lazy">
+      {% endif %}
+      <div>
+        <h1 class="hero__title">{{ fixture.title }}</h1>
+        <p class="hero__meta">
+          {% if fixture.kickoff %}<time datetime="{{ fixture.kickoff.isoformat() }}">{{ fixture.kickoff.strftime('%A %-d %B %Y, %H:%M') }}</time>{% endif %}
+          {% if fixture.venue %}<span class="dot">&middot;</span>{{ fixture.venue }}{% endif %}
+          {% if fixture.competition %}<span class="dot">&middot;</span>{{ fixture.competition }}{% endif %}
+        </p>
+      </div>
+      <a class="btn btn--buy" href="{{ fixture.url }}" rel="noopener">Book tickets</a>
+    </div>
+
+    <div id="status" class="status status--loading" role="status">
+      Reading live availability from the club&rsquo;s ticketing system&hellip;
+    </div>
+
+    <div class="stats" id="stats" hidden>
+      <div class="stat stat--primary">
+        <span class="stat__value" id="stat-sold">&mdash;</span>
+        <span class="stat__label">Sold</span>
+        <span class="stat__sub" id="stat-sold-pct"></span>
+      </div>
+      <div class="stat">
+        <span class="stat__value" id="stat-available">&mdash;</span>
+        <span class="stat__label">Available now</span>
+      </div>
+      <div class="stat">
+        <span class="stat__value" id="stat-capacity">&mdash;</span>
+        <span class="stat__label">Sellable seats</span>
+        <span class="stat__sub">Ground capacity here</span>
+      </div>
+      <div class="stat stat--muted">
+        <span class="stat__value" id="stat-soldout">&mdash;</span>
+        <span class="stat__label">Blocks sold out</span>
+      </div>
+    </div>
+
+    <div class="meter" id="meter" hidden>
+      <div class="meter__bar"><span class="meter__fill" id="meter-fill"></span></div>
+      <p class="meter__caption">
+        <span id="meter-caption"></span>
+        <span class="meter__verify" id="seat-verify"></span>
+      </p>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Availability by stand</h2>
+    <p class="panel__note">
+      Every block holding sellable seats, straight from the ticketing map.
+      A block showing nothing available has sold out. Blocks that carry no
+      inventory at all &mdash; East A, North ND and NE, the hospitality boxes
+      &mdash; are never sold here and are left out entirely.
+    </p>
+    <ul class="legend">
+      <li><span class="swatch swatch--free"></span>Plenty left</li>
+      <li><span class="swatch swatch--tight"></span>Selling out</li>
+      <li><span class="swatch swatch--soldout"></span>Sold out</li>
+    </ul>
+    <div id="stands" class="stands"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Sales over time</h2>
+    <p class="panel__note">Recorded each time availability is refreshed, at most once every {{ (config.SNAPSHOT_MIN_INTERVAL_SECONDS // 60) }} minutes.</p>
+    <div id="chart" class="chart"></div>
+  </section>
+
+  <section class="panel" id="prices-panel" hidden>
+    <h2>Prices</h2>
+    <p class="panel__note">Per price category, as listed by the club for this fixture.</p>
+    <div class="prices" id="prices"></div>
+  </section>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+{% endblock %}

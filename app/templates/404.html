@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Not found &middot; Southend Ticket Stats{% endblock %}
+{% block content %}
+<div class="panel panel--empty">
+  <h1>No such fixture</h1>
+  <p>That match code isn&rsquo;t one we&rsquo;re tracking.</p>
+  <p><a class="btn" href="{{ url_for('home') }}">Back to fixtures</a></p>
+</div>
+{% endblock %}
