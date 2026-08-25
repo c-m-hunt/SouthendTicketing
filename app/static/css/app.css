@@ -390,6 +390,7 @@ g[data-code]:focus-visible .seg-shape { stroke: var(--text); stroke-width: 18; }
   flex-direction: column;
   gap: .15rem;
 }
+.map-tip[hidden] { display: none; }
 @media (prefers-color-scheme: dark) {
   .map-tip { background: #05264f; border: 1px solid var(--border); }
 }
