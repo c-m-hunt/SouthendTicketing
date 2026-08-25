@@ -243,6 +243,25 @@ class KtcktsClient:
 
     # -- availability ----------------------------------------------------
 
+    def fetch_map(self, product_id):
+        """Return the venue map SVG.
+
+        This is the club's own stadium plan, annotated with a ktckts namespace
+        that names each block. It describes the venue rather than the match:
+        the bytes are identical for every fixture, so callers should cache it.
+        The nonce the page passes is not enforced, but it is sent anyway to
+        stay close to what a browser does.
+        """
+        token = self._ensure_token()
+        response = self.session.get(
+            self._url("/api/product/map"),
+            params={"productId": product_id},
+            headers={"Accept": "image/svg+xml", "X-CSRF-TOKEN": token},
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        return response.text
+
     def fetch_specification_criteria(self, product_id):
         return self._post_json("/api/product/specificationCriteria", product_id)
 
@@ -265,6 +284,9 @@ class KtcktsClient:
             try:
                 detail = self.fetch_detail(product_id)
                 seat_totals = parse_seat_status(detail)
+                with_seats = parse_seat_layouts(detail)
+                for segment in segments:
+                    segment["has_seats"] = segment["id"] in with_seats
             except (requests.RequestException, ValueError, KeyError) as exc:
                 log.warning("Seat-level detail unavailable for %s: %s", product_id, exc)
 
@@ -318,6 +340,8 @@ def parse_segments(spec):
                 "total_count": raw.get("totalCount") or 0,
                 "is_on_sale": bool(raw.get("isAvailable")),
                 "is_selectable": bool(raw.get("isSelectable")),
+                # Set from the seat layouts once detail has been fetched.
+                "has_seats": False,
                 "sort_order": order,
             }
         )
@@ -472,6 +496,23 @@ def parse_seat_status(detail):
             mismatched_sets,
         )
     return counts
+
+
+def parse_seat_layouts(detail):
+    """Segment ids that have real seats drawn on the map.
+
+    Separates two things that both report zero inventory: a block of actual
+    seats that is simply not sold here (East A, the away end, the directors'
+    box, press and broadcast) and a shape with no seating at all (the
+    hospitality boxes and lounges).
+    """
+    details = (detail.get("segmentDetails") or {}).get("segmentDetails") or []
+    with_seats = set()
+    for segment in details:
+        names = segment.get("seatNames") or []
+        if any(name and name != "-" for name in names):
+            with_seats.add(segment.get("id"))
+    return with_seats
 
 
 def summarise(segments):

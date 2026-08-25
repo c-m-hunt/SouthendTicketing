@@ -1,5 +1,6 @@
 import datetime as dt
 import functools
+import hashlib
 import logging
 
 from flask import abort, jsonify, redirect, render_template, request, url_for
@@ -23,6 +24,8 @@ def _serialise_tree(nodes):
             "sold": n["sold"],
             "in_use": n["in_use"],
             "sold_out": n["sold_out"],
+            "has_seats": n.get("has_seats", False),
+            "state": n["state"],
             "buyable": n["is_on_sale"],
             "children": _serialise_tree(n["children"]),
         }
@@ -146,6 +149,26 @@ def api_latest(game_code):
 
     app.cache.set(cache_key, payload, timeout=app.config["AVAILABILITY_CACHE_SECONDS"])
     return jsonify(payload)
+
+
+@app.route("/map.svg")
+def venue_map():
+    """The stadium plan, prepared for inlining and coloured by the client."""
+    try:
+        markup, _codes = service.venue_map()
+    except LookupError:
+        abort(404)
+    except Exception as exc:  # noqa: BLE001 - the page degrades to the block list
+        log.exception("Venue map unavailable")
+        return jsonify({"error": str(exc)}), 502
+
+    response = app.response_class(markup, mimetype="image/svg+xml")
+    # The map changes about as often as the stadium does, but an ETag keeps a
+    # stale copy from outliving a fix: revalidation costs a 304, and a day of
+    # hard caching is a long time to serve the wrong picture.
+    response.set_etag(hashlib.sha256(markup.encode("utf-8")).hexdigest()[:32])
+    response.headers["Cache-Control"] = "public, max-age=3600, must-revalidate"
+    return response.make_conditional(request)
 
 
 @app.route("/api/<game_code>/historic")

@@ -26,6 +26,11 @@ def detail_payload():
 
 
 @pytest.fixture(scope="session")
+def venue_map_svg():
+    return (DATA / "venue_map.svg").read_text()
+
+
+@pytest.fixture(scope="session")
 def fixtures_html():
     return (DATA / "fixtures_page.html").read_text()
 

@@ -11,6 +11,7 @@ import threading
 from sqlalchemy import select
 
 from app import app, db
+from app import stadium_map
 from app.ktckts import KtcktsClient
 from app.models import (
     Fixture,
@@ -27,6 +28,12 @@ _client = None
 _fixtures_refreshed_at = None
 _refresh_lock = threading.Lock()
 _refresh_in_flight = False
+
+# The venue map describes the ground, not the match: the bytes are identical
+# for every fixture, so it is fetched once per process rather than per view.
+_map_lock = threading.Lock()
+_map_markup = None
+_map_codes = ()
 
 
 def client():
@@ -267,6 +274,31 @@ def refresh_all(force_snapshot=True):
     return results
 
 
+def venue_map():
+    """Return the prepared stadium SVG, fetching it at most once.
+
+    Any upcoming fixture will do as the productId; the response does not vary
+    by match.
+    """
+    global _map_markup, _map_codes
+
+    if _map_markup is not None:
+        return _map_markup, _map_codes
+
+    with _map_lock:
+        if _map_markup is not None:
+            return _map_markup, _map_codes
+
+        fixture = db.session.scalar(select(Fixture).order_by(Fixture.kickoff.asc()))
+        if fixture is None:
+            raise LookupError("No fixture available to fetch the venue map with")
+
+        markup, codes = stadium_map.prepare(client().fetch_map(fixture.product_id))
+        _map_markup, _map_codes = markup, tuple(codes)
+        log.info("Venue map loaded: %s blocks", len(codes))
+        return _map_markup, _map_codes
+
+
 # -- queries -------------------------------------------------------------
 
 
@@ -311,6 +343,7 @@ def build_segment_tree(segments):
         # inventory was never part of this match.
         node["in_use"] = node["total_count"] > 0
         node["sold_out"] = node["in_use"] and node["open_count"] == 0
+        node["state"] = stadium_map.classify(node)
         return node
 
     return [prune(r) for r in roots]

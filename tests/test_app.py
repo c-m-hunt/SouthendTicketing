@@ -331,3 +331,57 @@ def test_initial_load_failure_renders_empty_state(flask_app, client, monkeypatch
     response = client.get("/")
     assert response.status_code == 200
     assert "No fixtures on sale" in response.get_data(as_text=True)
+
+
+# -- venue map -----------------------------------------------------------
+
+
+def test_map_route_serves_the_prepared_svg(seeded, client, venue_map_svg, monkeypatch):
+    from app import service
+
+    fake = type("C", (), {"fetch_map": lambda self, pid: venue_map_svg})()
+    monkeypatch.setattr(service, "client", lambda: fake)
+    monkeypatch.setattr(service, "_map_markup", None)
+    monkeypatch.setattr(service, "_map_codes", ())
+
+    response = client.get("/map.svg")
+    assert response.status_code == 200
+    assert response.mimetype == "image/svg+xml"
+    assert response.headers.get("ETag")
+
+    body = response.get_data(as_text=True)
+    assert 'data-code="BLA"' in body
+    assert "seats-top" not in body
+
+
+def test_map_is_fetched_once_per_process(seeded, client, venue_map_svg, monkeypatch):
+    """It describes the venue, not the match, so it must not refetch."""
+    from app import service
+
+    calls = []
+
+    class Counting:
+        def fetch_map(self, product_id):
+            calls.append(product_id)
+            return venue_map_svg
+
+    monkeypatch.setattr(service, "client", lambda: Counting())
+    monkeypatch.setattr(service, "_map_markup", None)
+    monkeypatch.setattr(service, "_map_codes", ())
+
+    client.get("/map.svg")
+    client.get("/map.svg")
+    assert len(calls) == 1
+
+
+def test_stands_carry_a_map_state(seeded, client):
+    """The map colours blocks from this, so every block needs one."""
+    response = client.get("/api/SEUTESTH01/latest")
+    data = response.get_json()
+
+    def walk(nodes):
+        for node in nodes:
+            assert node["state"] in {"roomy", "tight", "soldout", "unsold", "empty"}
+            walk(node["children"])
+
+    walk(data["stands"])

@@ -77,6 +77,22 @@
     </div>
   </section>
 
+  <section class="panel" id="map-panel">
+    <h2>Roots Hall</h2>
+    <p class="panel__note">
+      The club&rsquo;s own stadium plan, shaded by what is left in each block.
+    </p>
+    <ul class="legend">
+      <li><span class="swatch swatch--free"></span>Plenty left</li>
+      <li><span class="swatch swatch--tight"></span>Selling out</li>
+      <li><span class="swatch swatch--soldout"></span>Sold out</li>
+      <li><span class="swatch swatch--unsold"></span>Not sold here</li>
+    </ul>
+    <div class="stadium-map" id="stadium-map" role="img"
+         aria-label="Roots Hall seating plan shaded by availability"></div>
+    <p class="map-caption" id="map-caption"></p>
+  </section>
+
   <section class="panel">
     <h2>Availability by stand</h2>
     <p class="panel__note">
@@ -85,11 +101,6 @@
       inventory at all &mdash; East A, North ND and NE, the hospitality boxes
       &mdash; are never sold here and are left out entirely.
     </p>
-    <ul class="legend">
-      <li><span class="swatch swatch--free"></span>Plenty left</li>
-      <li><span class="swatch swatch--tight"></span>Selling out</li>
-      <li><span class="swatch swatch--soldout"></span>Sold out</li>
-    </ul>
     <div id="stands" class="stands"></div>
   </section>
 

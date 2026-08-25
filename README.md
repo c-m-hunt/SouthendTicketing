@@ -57,6 +57,26 @@ inventory, and zero-inventory blocks are excluded entirely. Whether a seat is
 held by a season-ticket holder or was bought last night, it is gone either
 way — which is also how the original site counted.
 
+### The stadium map
+
+`/api/product/map` returns the club's own Roots Hall plan as SVG, annotated
+with a `ktckts` namespace that names each block:
+
+```xml
+<g ktckts:type="segment" ktckts:code="BLQ"> … <polygon ktckts:show-availability="true"/> </g>
+```
+
+Those codes match the segment codes exactly — 54 shapes, 54 blocks — so the
+map is coloured by a direct lookup rather than any hand-maintained geometry.
+It describes the venue rather than the match (byte-identical for every
+fixture), so it is fetched once per process and served from `/map.svg`.
+
+`app/stadium_map.py` prepares it: seat guide paths are dropped (ktckts grows
+seat rows between them at render time, but statically they draw as black bars
+across each block), the placeholder purple fill is stripped so the stylesheet
+can colour blocks, block letters are made themeable, and anything active is
+removed before it goes into the page.
+
 ### Away fixtures
 
 Dropped. The old site scraped a separate away-tickets page that no longer
@@ -141,6 +161,7 @@ survives redeploys — `DATABASE_URL` already points there.
 | `GET /api/<code>/latest` | Live availability, including the full stand tree |
 | `GET /api/<code>/historic` | Snapshot history for the trend chart |
 | `GET /api/<code>/prices` | Prices grouped by category |
+| `GET /map.svg` | Roots Hall plan, prepared for inlining |
 | `GET /healthz` | Liveness probe |
 
 ## Schema

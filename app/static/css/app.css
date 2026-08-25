@@ -227,6 +227,11 @@ a { color: var(--navy-soft); }
 .swatch--tight { background: var(--accent); }
 .swatch--soldout { background: #c0392b; }
 .swatch--closed { background: var(--closed); }
+.swatch--unsold {
+  background: repeating-linear-gradient(
+    45deg, var(--closed) 0 3px, transparent 3px 6px
+  ), var(--map-unsold-bg);
+}
 
 .stands { display: grid; gap: .9rem; }
 .stand {
@@ -272,6 +277,96 @@ a { color: var(--navy-soft); }
 .block--tight .block__fill { background: var(--accent); }
 .block--soldout .block__bar { background: #c0392b; }
 .block--soldout .block__count { color: #c0392b; font-weight: 600; }
+
+/* --- stadium map --- */
+
+:root {
+  --map-unsold-bg: #eef1f5;
+  --map-unsold-line: #a6b0be;
+  --map-outline: rgba(16, 32, 56, .35);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --map-unsold-bg: #1d2734;
+    --map-unsold-line: #46556a;
+    --map-outline: rgba(230, 238, 248, .28);
+  }
+}
+
+.stadium-map { width: 100%; position: relative; }
+.stadium-map__svg { width: 100%; height: auto; display: block; }
+
+/* The file ships a placeholder fill; availability is applied here instead. */
+.seg-shape {
+  fill: var(--closed);
+  stroke: var(--map-outline);
+  stroke-width: 8;
+  transition: fill .35s ease;
+}
+.seg-shape.seg--roomy   { fill: var(--free); }
+.seg-shape.seg--tight   { fill: var(--accent); }
+.seg-shape.seg--soldout { fill: #c0392b; }
+.seg-shape.seg--unsold  { fill: url(#seg-hatch); }
+.seg-shape.seg--empty   { fill: var(--map-unsold-bg); }
+
+.seg-hatch__bg   { fill: var(--map-unsold-bg); }
+.seg-hatch__line { stroke: var(--map-unsold-line); }
+
+/* White reads well on a solid block but vanishes on the pale hatch. */
+.seg-label { fill: #fff; }
+g.seg--unsold .seg-label,
+g.seg--empty .seg-label { fill: var(--text-soft); }
+
+g[data-code] { cursor: pointer; outline: none; }
+g[data-code]:hover .seg-shape,
+g[data-code]:focus-visible .seg-shape { stroke: var(--text); stroke-width: 18; }
+
+/* Custom tooltip: the native one waits about a second before showing. */
+.map-tip {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 5;
+  pointer-events: none;
+  min-width: 8.5rem;
+  max-width: 15rem;
+  padding: .5rem .65rem;
+  border-radius: 8px;
+  background: var(--navy-dark);
+  color: #fff;
+  font-size: .82rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .28);
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  /* No transition: it must appear the instant the pointer arrives. */
+}
+@media (prefers-color-scheme: dark) {
+  .map-tip { background: #05264f; border: 1px solid var(--border); }
+}
+.map-tip strong { font-size: .9rem; }
+.map-tip span { color: rgba(255, 255, 255, .82); }
+.map-tip__bar {
+  margin-top: .25rem;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .25);
+  overflow: hidden;
+}
+.map-tip__bar i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--free);
+}
+
+.map-caption {
+  margin: .9rem 0 0;
+  font-size: .82rem;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
 
 /* --- chart --- */
 

@@ -203,6 +203,7 @@
     .then(function (data) {
       renderTotals(data, countSoldOut(data.stands));
       renderStands(data.stands);
+      loadMap(data.stands);
       setStatus("ok", "Live from the club’s ticketing system at " + data.retrieved_at + " UTC.");
       loadHistory();
       loadPrices();
@@ -210,6 +211,176 @@
     .catch(function (err) {
       setStatus("error", "Couldn’t read live availability: " + err.message);
     });
+
+  /* --- stadium map --- */
+
+  function flatten(nodes, into) {
+    into = into || [];
+    nodes.forEach(function (node) {
+      if (node.children && node.children.length) {
+        flatten(node.children, into);
+      } else {
+        into.push(node);
+      }
+    });
+    return into;
+  }
+
+  function loadMap(stands) {
+    var host = el("stadium-map");
+    if (!host) { return; }
+
+    fetch("/map.svg")
+      .then(function (r) {
+        if (!r.ok) { throw new Error("map unavailable"); }
+        return r.text();
+      })
+      .then(function (markup) {
+        // Parsed as a document rather than assigned to innerHTML, so nothing
+        // in the third-party file is evaluated on the way in.
+        var doc = new DOMParser().parseFromString(markup, "image/svg+xml");
+        var svg = doc.documentElement;
+        if (!svg || svg.nodeName === "parsererror") { throw new Error("map did not parse"); }
+
+        host.appendChild(document.importNode(svg, true));
+        paintMap(flatten(stands));
+      })
+      .catch(function () {
+        // The block list below already carries the same numbers.
+        var panel = el("map-panel");
+        if (panel) { panel.hidden = true; }
+      });
+  }
+
+  function blockLabel(block) {
+    return block.name || block.code;
+  }
+
+  function blockDetail(block) {
+    if (!block.in_use) {
+      return block.has_seats ? "not sold here" : "no seating";
+    }
+    if (block.sold_out) {
+      return "sold out — all " + fmt(block.total) + " seats gone";
+    }
+    return fmt(block.open) + " of " + fmt(block.total) + " available";
+  }
+
+  /* Follows the pointer and appears on the first mousemove, where the native
+     <title> tooltip would sit idle for about a second first. */
+  function attachTooltip(host, byCode) {
+    var tip = document.createElement("div");
+    tip.className = "map-tip";
+    tip.hidden = true;
+    host.appendChild(tip);
+
+    var current = null;
+
+    function hide() {
+      current = null;
+      tip.hidden = true;
+    }
+
+    function show(block, event) {
+      if (block !== current) {
+        current = block;
+        tip.textContent = "";
+
+        var name = document.createElement("strong");
+        name.textContent = blockLabel(block);
+        tip.appendChild(name);
+
+        var detail = document.createElement("span");
+        detail.textContent = blockDetail(block);
+        tip.appendChild(detail);
+
+        if (block.in_use && !block.sold_out) {
+          var bar = document.createElement("span");
+          bar.className = "map-tip__bar";
+          var fill = document.createElement("i");
+          fill.style.width = Math.max(2, Math.round(block.open / block.total * 100)) + "%";
+          bar.appendChild(fill);
+          tip.appendChild(bar);
+        }
+        tip.hidden = false;
+      }
+      position(event);
+    }
+
+    function position(event) {
+      var box = host.getBoundingClientRect();
+      var x = event.clientX - box.left;
+      var y = event.clientY - box.top;
+      // Keep it inside the map, and above the cursor rather than under it.
+      var w = tip.offsetWidth, h = tip.offsetHeight;
+      var left = Math.min(Math.max(x - w / 2, 4), Math.max(4, box.width - w - 4));
+      var top = y - h - 14;
+      if (top < 4) { top = y + 20; }
+      tip.style.transform = "translate(" + Math.round(left) + "px," + Math.round(top) + "px)";
+    }
+
+    function blockFrom(target) {
+      var node = target && target.closest ? target.closest("[data-code]") : null;
+      return node ? byCode[node.getAttribute("data-code")] : null;
+    }
+
+    host.addEventListener("mousemove", function (event) {
+      var block = blockFrom(event.target);
+      if (block) { show(block, event); } else { hide(); }
+    });
+    host.addEventListener("mouseleave", hide);
+
+    // Touch and keyboard both need a way in; neither gets a mousemove.
+    host.addEventListener("click", function (event) {
+      var block = blockFrom(event.target);
+      if (block) { show(block, event); } else { hide(); }
+    });
+    host.addEventListener("focusin", function (event) {
+      var block = blockFrom(event.target);
+      if (!block) { return; }
+      var box = event.target.getBoundingClientRect();
+      show(block, { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2 });
+    });
+    host.addEventListener("focusout", hide);
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") { hide(); }
+    });
+  }
+
+  function paintMap(blocks) {
+    var host = el("stadium-map");
+    var byCode = {};
+    blocks.forEach(function (b) { byCode[b.code] = b; });
+
+    var painted = 0;
+    host.querySelectorAll("[data-code]").forEach(function (node) {
+      var block = byCode[node.getAttribute("data-code")];
+      if (!block) { return; }
+
+      // Groups carry the state for hit-testing; shapes carry it for fill.
+      node.classList.add("seg--" + block.state);
+      if (node.classList.contains("seg-shape")) { painted++; }
+
+      if (node.nodeName === "g") {
+        // aria-label rather than <title>: <title> is what makes the browser
+        // show its own tooltip, and that waits about a second before
+        // appearing. Screen readers still get a name from aria-label.
+        node.setAttribute("aria-label", blockLabel(block) + " — " + blockDetail(block));
+        node.setAttribute("tabindex", "0");
+      }
+    });
+
+    attachTooltip(host, byCode);
+
+    var unsold = blocks.filter(function (b) { return !b.in_use && b.has_seats; });
+    var caption = el("map-caption");
+    if (caption && unsold.length) {
+      caption.textContent =
+        "Hatched blocks hold real seats that aren’t sold through the club’s " +
+        "ticketing — away allocation, directors, press and broadcast: " +
+        unsold.map(function (b) { return b.name || b.code; }).join(", ") + ".";
+    }
+  }
 
   /* --- prices --- */
 
