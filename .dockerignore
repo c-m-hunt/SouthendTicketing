@@ -1,0 +1,20 @@
+.git/
+.gitignore
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+.playwright-mcp/
+
+# Never ship a local database into the image; the container uses /data.
+*.db
+
+# Not needed at runtime.
+tests/
+README.md
+LICENSE
+Dockerfile
+.dockerignore
+*.png

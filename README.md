@@ -66,32 +66,47 @@ if the club starts selling them here.
 
 ## Running it
 
+Dependencies are managed with [uv](https://docs.astral.sh/uv/); `uv run`
+creates and syncs the environment on first use, so there is no separate
+install step.
+
 ```
 git clone https://github.com/Chr12t0pher/SouthendTicketing.git
 cd SouthendTicketing
-pip install -r requirements.txt
-python wsgi.py
+uv run python wsgi.py
 ```
 
 Then visit <http://127.0.0.1:5000>. The database is created on first run and
 fixtures are loaded on the first page view.
 
-On macOS port 5000 is taken by AirPlay Receiver, so use `PORT=5057 python
-wsgi.py` (or disable AirPlay Receiver in System Settings).
+On macOS port 5000 is taken by AirPlay Receiver, so use
+`PORT=5057 uv run python wsgi.py` (or disable AirPlay Receiver in System
+Settings).
 
 ### Command line
 
 ```
-python manage.py fixtures          # re-scrape the fixture list
-python manage.py refresh           # snapshot every upcoming fixture (for cron)
-python manage.py show SEU2627H03   # print current availability
+uv run southend-tickets fixtures          # re-scrape the fixture list
+uv run southend-tickets refresh           # snapshot every fixture (for cron)
+uv run southend-tickets show SEU2627H03   # print current availability
 ```
 
 A refresh every 10–15 minutes via cron gives a useful sales curve:
 
 ```
-*/15 * * * * cd /opt/app && python manage.py refresh >> /var/log/southend.log 2>&1
+*/15 * * * * cd /opt/app && /usr/local/bin/uv run --locked southend-tickets refresh >> /var/log/southend.log 2>&1
 ```
+
+### Managing dependencies
+
+```
+uv sync                    # match the environment to uv.lock
+uv add <package>           # add a runtime dependency
+uv add --dev <package>     # add a dev-only dependency
+uv lock --upgrade          # refresh the lockfile
+```
+
+`uv.lock` is committed, so builds and CI resolve to identical versions.
 
 ### Configuration
 
@@ -105,6 +120,18 @@ All optional, all via environment variables:
 | `FIXTURE_REFRESH_SECONDS` | `3600` | How often the fixture list is re-scraped |
 | `ADMIN_TOKEN` | unset | If set, required for `/admin/*` |
 | `KTCKTS_BASE_URL` | the club's site | Override for testing |
+
+### Docker
+
+```
+docker build -t southend-tickets .
+docker run -p 8080:8080 -v southend-data:/data southend-tickets
+```
+
+The image is a multi-stage uv build: dependencies resolve from `uv.lock` in a
+builder, and only the resulting venv and source reach the runtime image. It
+runs as a non-root user, and the database lives on a `/data` volume so it
+survives redeploys — `DATABASE_URL` already points there.
 
 ## HTTP API
 
@@ -132,8 +159,7 @@ stored once rather than per match.
 ## Tests
 
 ```
-pip install -r requirements-dev.txt
-python -m pytest
+uv run pytest
 ```
 
 Tests run against payloads recorded from the live site (`tests/data/`), so a

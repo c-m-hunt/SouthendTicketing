@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Command line entry points, mainly for cron.
 
-    python manage.py fixtures          # re-scrape the fixture list
-    python manage.py refresh           # fixtures + a snapshot for every match
-    python manage.py show SEU2627H03   # print current availability
+    uv run southend-tickets fixtures          # re-scrape the fixture list
+    uv run southend-tickets refresh           # a snapshot for every match
+    uv run southend-tickets show SEU2627H03   # print current availability
+
+Also runnable directly as ``python manage.py <command>``.
 """
 
 import argparse

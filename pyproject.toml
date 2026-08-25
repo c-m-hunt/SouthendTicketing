@@ -1,0 +1,44 @@
+[project]
+name = "southend-ticketing"
+version = "2.0.0"
+description = "Live ticket availability for Southend United home fixtures at Roots Hall."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { file = "LICENSE" }
+authors = [{ name = "Chris Stevens" }]
+
+dependencies = [
+    "flask>=3.0",
+    "flask-caching>=2.1",
+    "flask-sqlalchemy>=3.1",
+    "requests>=2.31",
+    "beautifulsoup4>=4.12",
+    "html5lib>=1.1",
+]
+
+[project.optional-dependencies]
+# Installed into the image alongside the app; not needed for local dev.
+deploy = ["gunicorn>=21.2"]
+
+[project.scripts]
+southend-tickets = "manage:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.setuptools]
+# The app is a package plus two top-level modules run directly.
+packages = ["app"]
+py-modules = ["config", "manage", "wsgi"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
