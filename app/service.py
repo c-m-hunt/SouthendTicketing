@@ -42,6 +42,7 @@ def client():
         _client = KtcktsClient(
             app.config["KTCKTS_BASE_URL"],
             fixtures_path=app.config["KTCKTS_FIXTURES_PATH"],
+            season_path=app.config["KTCKTS_SEASON_PATH"],
             timeout=app.config["KTCKTS_TIMEOUT"],
             connect_timeout=app.config["KTCKTS_CONNECT_TIMEOUT"],
         )
@@ -49,6 +50,40 @@ def client():
 
 
 # -- fixtures ------------------------------------------------------------
+
+
+def refresh_season_fixtures():
+    """Sync the season ticket listing. Returns (added, updated)."""
+    fixtures = client().fetch_season_fixtures()
+    added = updated = 0
+
+    for data in fixtures:
+        fixture = db.session.scalar(
+            select(Fixture).where(Fixture.product_id == data["product_id"])
+        )
+        if fixture is None:
+            fixture = Fixture(product_id=data["product_id"], first_seen=utcnow(), kind="season")
+            db.session.add(fixture)
+            added += 1
+        else:
+            updated += 1
+
+        fixture.code = data["code"]
+        fixture.slug = data["slug"]
+        fixture.url = data["url"]
+        fixture.title = data["title"]
+        fixture.opponent = None
+        fixture.home_crest = None
+        fixture.away_crest = None
+        fixture.venue = None
+        fixture.competition = None
+        fixture.kickoff = None
+        fixture.is_home = True
+        fixture.kind = "season"
+
+    db.session.commit()
+    log.info("Season fixture refresh: %s added, %s updated", added, updated)
+    return added, updated
 
 
 def refresh_fixtures():
@@ -113,9 +148,11 @@ def _refresh_fixtures_in_background():
         try:
             with app.app_context():
                 refresh_fixtures()
+                try:
+                    refresh_season_fixtures()
+                except Exception:  # noqa: BLE001 - season refresh failure is non-fatal
+                    log.exception("Background season fixture refresh failed")
         except Exception:  # noqa: BLE001 - the stale list still renders
-            # Stamp the attempt anyway, so a persistently broken upstream is
-            # retried on the normal interval instead of on every request.
             _fixtures_refreshed_at = utcnow()
             log.exception("Background fixture refresh failed")
         finally:
@@ -128,18 +165,24 @@ def _refresh_fixtures_in_background():
 def ensure_fixtures():
     """Make sure fixtures exist, refreshing stale ones out of band.
 
-    Only an empty table blocks the request: there is nothing to render without
-    it. Once some fixtures are known, a stale list is refreshed in the
-    background so a slow or unreachable upstream cannot stall the page.
+    Only an empty match fixture table blocks the request. Once some are known,
+    staleness is resolved in the background. Season fixtures are also fetched in
+    the background on first load and on each normal stale-check cycle.
     """
-    if db.session.scalar(select(db.func.count(Fixture.id))) == 0:
+    match_count = db.session.scalar(
+        select(db.func.count(Fixture.id)).where(Fixture.kind == "match")
+    )
+    if match_count == 0:
         try:
             return refresh_fixtures()
         except Exception:  # noqa: BLE001 - render the empty state instead
             log.exception("Initial fixture load failed")
         return 0, 0
 
-    if fixtures_are_stale():
+    season_count = db.session.scalar(
+        select(db.func.count(Fixture.id)).where(Fixture.kind == "season")
+    )
+    if season_count == 0 or fixtures_are_stale():
         _refresh_fixtures_in_background()
     return 0, 0
 
@@ -260,10 +303,14 @@ def refresh_fixture(fixture, force_snapshot=False):
 
 
 def refresh_all(force_snapshot=True):
-    """Refresh every upcoming fixture. Intended for cron."""
+    """Refresh every upcoming and season fixture. Intended for cron."""
     refresh_fixtures()
+    try:
+        refresh_season_fixtures()
+    except Exception:  # noqa: BLE001
+        log.exception("Season fixture refresh failed during refresh_all")
     results = []
-    for fixture in upcoming_fixtures():
+    for fixture in list(upcoming_fixtures()) + list(season_fixtures()):
         try:
             refresh_fixture(fixture, force_snapshot=force_snapshot)
             results.append((fixture.code, "ok"))
@@ -309,6 +356,14 @@ def upcoming_fixtures():
             select(Fixture)
             .where(Fixture.kickoff >= cutoff)
             .order_by(Fixture.kickoff.asc())
+        )
+    )
+
+
+def season_fixtures():
+    return list(
+        db.session.scalars(
+            select(Fixture).where(Fixture.kind == "season").order_by(Fixture.title.asc())
         )
     )
 

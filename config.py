@@ -13,6 +13,7 @@ SQLALCHEMY_TRACK_MODIFICATIONS = False
 # endpoints that require an antiforgery token lifted from any page load.
 KTCKTS_BASE_URL = os.environ.get("KTCKTS_BASE_URL", "https://southendunitedfc.ktckts.com")
 KTCKTS_FIXTURES_PATH = os.environ.get("KTCKTS_FIXTURES_PATH", "/brand/match-tickets")
+KTCKTS_SEASON_PATH = os.environ.get("KTCKTS_SEASON_PATH", "/brand/season")
 KTCKTS_TIMEOUT = int(os.environ.get("KTCKTS_TIMEOUT", "30"))
 # Kept short so a host without IPv6 routing fails over to IPv4 quickly.
 KTCKTS_CONNECT_TIMEOUT = int(os.environ.get("KTCKTS_CONNECT_TIMEOUT", "5"))

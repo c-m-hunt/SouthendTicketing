@@ -3,15 +3,28 @@
 {% block title %}{% if fixture %}{{ fixture.title }} &middot; {% endif %}Southend Ticket Stats{% endblock %}
 
 {% block nav %}
-  {% if fixtures %}
+  {% if fixtures or season_fixtures %}
   <div class="fixture-select">
     <label for="fixture">Fixture</label>
     <select id="fixture" data-current="{{ fixture.code if fixture else '' }}">
-      {% for f in fixtures %}
-        <option value="{{ f.code }}" {% if fixture and f.code == fixture.code %}selected{% endif %}>
-          {{ f.opponent or f.title }} &mdash; {{ f.kickoff.strftime('%a %-d %b') if f.kickoff else 'TBC' }}
-        </option>
-      {% endfor %}
+      {% if season_fixtures %}
+      <optgroup label="Season Tickets">
+        {% for f in season_fixtures %}
+          <option value="{{ f.code }}" {% if fixture and f.code == fixture.code %}selected{% endif %}>
+            {{ f.title }}
+          </option>
+        {% endfor %}
+      </optgroup>
+      {% endif %}
+      {% if fixtures %}
+      <optgroup label="Match Tickets">
+        {% for f in fixtures %}
+          <option value="{{ f.code }}" {% if fixture and f.code == fixture.code %}selected{% endif %}>
+            {{ f.opponent or f.title }} &mdash; {{ f.kickoff.strftime('%a %-d %b') if f.kickoff else 'TBC' }}
+          </option>
+        {% endfor %}
+      </optgroup>
+      {% endif %}
     </select>
   </div>
   {% endif %}

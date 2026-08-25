@@ -75,14 +75,15 @@ def require_admin(view):
 def home(game_code=""):
     service.ensure_fixtures()
     fixtures = service.upcoming_fixtures()
+    seasons = service.season_fixtures()
 
     fixture = service.find_fixture(game_code) if game_code else None
     if game_code and fixture is None:
         abort(404)
-    if fixture is None and fixtures:
-        fixture = fixtures[0]
+    if fixture is None:
+        fixture = fixtures[0] if fixtures else (seasons[0] if seasons else None)
 
-    return render_template("index.html", fixture=fixture, fixtures=fixtures)
+    return render_template("index.html", fixture=fixture, fixtures=fixtures, season_fixtures=seasons)
 
 
 # -- api -----------------------------------------------------------------

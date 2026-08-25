@@ -40,6 +40,7 @@ class Fixture(db.Model):
     # False once every segment reports isAvailable == false (sold out or
     # withdrawn); lets the UI grey a fixture out without a fresh fetch.
     on_sale = db.Column(db.Boolean, default=True, nullable=False)
+    kind = db.Column(db.String(16), default="match", nullable=False, server_default="match")
 
     first_seen = db.Column(db.DateTime, default=utcnow)
     last_refreshed = db.Column(db.DateTime)

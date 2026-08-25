@@ -99,11 +99,13 @@ class KtcktsClient:
         self,
         base_url,
         fixtures_path="/brand/match-tickets",
+        season_path="/brand/season",
         timeout=30,
         connect_timeout=5,
     ):
         self.base_url = base_url.rstrip("/")
         self.fixtures_path = fixtures_path
+        self.season_path = season_path
         # ktckts resolves to IPv6 addresses ahead of IPv4. urllib3 works
         # through them in order and, unlike curl, has no Happy Eyeballs
         # fallback, so on a host without IPv6 routing it stalls for the whole
@@ -119,14 +121,16 @@ class KtcktsClient:
     def _url(self, path):
         return self.base_url + path
 
-    def _get_html(self, path):
+    def _get_response(self, path):
         response = self.session.get(self._url(path), timeout=self.timeout)
         response.raise_for_status()
-        # Every page embeds a token; cache the first one we see.
         match = _CSRF_RE.search(response.text)
         if match:
             self._csrf_token = match.group(1)
-        return response.text
+        return response
+
+    def _get_html(self, path):
+        return self._get_response(path).text
 
     def _ensure_token(self):
         if not self._csrf_token:
@@ -240,6 +244,51 @@ class KtcktsClient:
             "kickoff": parse_kickoff(text_of(".kaizen-fixture__meta .date")),
             "is_home": badge != "AWAY",
         }
+
+    def fetch_season_fixtures(self):
+        """Scrape the season brand page into synthetic fixture dicts.
+
+        The /brand/season URL redirects to a /package/ page for the current
+        season ticket product. The product ID and title are extracted from the
+        redirected page; the availability API calls are identical to match
+        tickets once the product ID is known.
+        """
+        response = self._get_response(self.season_path)
+        html = response.text
+        soup = BeautifulSoup(html, "html5lib")
+
+        product_ids = list(dict.fromkeys(re.findall(r"prdct_[0-9a-f-]+", html)))
+        if not product_ids:
+            raise KtcktsError("No season ticket product IDs found on the season page")
+
+        # Package slug from the final URL, e.g. /package/seu2627hst/season-ticket-202627
+        parts = response.url.rstrip("/").split("/")
+        package_slug = parts[-2] if len(parts) >= 2 else "season"
+
+        title_tag = soup.select_one("title")
+        page_title = title_tag.get_text(strip=True) if title_tag else "Season Tickets"
+        title = page_title.split("|")[0].strip()
+
+        fixtures = []
+        for product_id in product_ids:
+            code = package_slug.upper()
+            fixtures.append(
+                {
+                    "product_id": product_id,
+                    "code": code,
+                    "slug": parts[-1] if parts else "",
+                    "url": response.url,
+                    "title": title,
+                    "opponent": None,
+                    "home_crest": None,
+                    "away_crest": None,
+                    "venue": None,
+                    "competition": None,
+                    "kickoff": None,
+                    "is_home": True,
+                }
+            )
+        return fixtures
 
     # -- availability ----------------------------------------------------
 

@@ -32,3 +32,12 @@ from app import models, views  # noqa: E402,F401 - registers models and routes
 
 with app.app_context():
     db.create_all()
+    # Add kind column to existing databases that predate it.
+    with db.engine.connect() as _conn:
+        try:
+            _conn.execute(
+                db.text("ALTER TABLE fixture ADD COLUMN kind VARCHAR(16) NOT NULL DEFAULT 'match'")
+            )
+            _conn.commit()
+        except Exception:
+            pass  # Column already exists.
