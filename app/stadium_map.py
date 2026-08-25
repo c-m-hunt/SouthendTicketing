@@ -240,8 +240,11 @@ def classify(segment):
     total = segment.get("total_count") or 0
     open_count = segment.get("open_count") or 0
 
-    if total == 0:
+    if total == 0 and open_count == 0:
         return "unsold" if segment.get("has_seats") else "empty"
+    if total == 0:
+        # Season tickets: total capacity unknown, but seats are available.
+        return "roomy"
     if open_count == 0:
         return "soldout"
     return "roomy" if open_count / total > 0.35 else "tight"

@@ -284,7 +284,7 @@ def refresh_fixture(fixture, force_snapshot=False):
         # Store leaves only; virtual parents are recomputed on read.
         parent_ids = {s["parent_id"] for s in segments if s["parent_id"]}
         for data in segments:
-            if data["id"] in parent_ids or data["total_count"] <= 0:
+            if data["id"] in parent_ids or (data["total_count"] <= 0 and data["open_count"] <= 0):
                 continue
             db.session.add(
                 SegmentSnapshot(
@@ -396,8 +396,8 @@ def build_segment_tree(segments):
         node["sold"] = max(0, node["total_count"] - node["open_count"])
         # A block with inventory and nothing left is sold out; one with no
         # inventory was never part of this match.
-        node["in_use"] = node["total_count"] > 0
-        node["sold_out"] = node["in_use"] and node["open_count"] == 0
+        node["in_use"] = node["total_count"] > 0 or node["open_count"] > 0
+        node["sold_out"] = node["total_count"] > 0 and node["open_count"] == 0
         node["state"] = stadium_map.classify(node)
         return node
 
