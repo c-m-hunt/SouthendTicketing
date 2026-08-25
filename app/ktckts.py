@@ -349,6 +349,17 @@ class KtcktsClient:
             # the two requests, so report it rather than treating it as fault.
             totals["seat_drift"] = seat_totals["open"] - totals["available"]
 
+            # specificationCriteria omits totalCount for season ticket products.
+            # detailedAvailability carries the real total; use it to fill in
+            # capacity and derive a sold count that would otherwise be zero.
+            if totals["capacity"] == 0 and seat_totals["total"] > 0:
+                cap = seat_totals["total"]
+                avail = seat_totals.get("reported_open") or totals["available"]
+                totals["capacity"] = cap
+                totals["available"] = avail
+                totals["sold"] = max(0, cap - avail)
+                totals["percent_sold"] = round(totals["sold"] / cap * 100, 1)
+
         return {"segments": segments, "prices": prices, "totals": totals}
 
 
