@@ -101,8 +101,14 @@
 
   <section class="panel" id="prices-panel" hidden>
     <h2>Prices</h2>
-    <p class="panel__note">Per price category, as listed by the club for this fixture.</p>
-    <div class="prices" id="prices"></div>
+    <p class="panel__note">
+      Matchday ticket prices for this fixture. The club prices each area
+      separately but charges the same across the ground, so they are listed
+      once here.
+    </p>
+    <table class="price-table price-table--single">
+      <tbody id="prices"></tbody>
+    </table>
   </section>
 
 {% endif %}

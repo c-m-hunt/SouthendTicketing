@@ -186,21 +186,19 @@ def api_prices(game_code):
         .order_by(FixturePrice.sort_order)
         .all()
     )
-    grouped = {}
-    for price in prices:
-        bucket = grouped.setdefault(
-            price.category_id,
-            {"category": price.category.name if price.category else None, "types": []},
-        )
-        bucket["types"].append(
+    return jsonify(
+        [
             {
                 "type": price.name,
                 "amount": price.amount,
-                "max_selectable": price.max_selectable,
+                "max_amount": price.max_amount,
+                "varies": price.varies,
                 "restriction": price.restriction or None,
+                "areas": price.areas,
             }
-        )
-    return jsonify(list(grouped.values()))
+            for price in prices
+        ]
+    )
 
 
 # -- admin ---------------------------------------------------------------

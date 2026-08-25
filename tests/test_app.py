@@ -46,7 +46,7 @@ def seeded(flask_app, spec_payload, detail_payload, monkeypatch):
 
     availability = {
         "segments": ktckts.parse_segments(spec_payload),
-        "prices": ktckts.parse_prices(spec_payload),
+        "prices": ktckts.aggregate_prices(ktckts.parse_prices(spec_payload)),
         "totals": ktckts.summarise(ktckts.parse_segments(spec_payload)),
     }
     seats = ktckts.parse_seat_status(detail_payload)
@@ -239,19 +239,19 @@ def test_api_historic(seeded, client):
     assert {"t", "sold", "available", "capacity", "percent_sold"} <= set(data[0])
 
 
-def test_api_prices_grouped_by_category(seeded, client):
+def test_api_prices_is_a_single_flat_list(seeded, client):
     from app import service
 
     service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
     data = client.get("/api/SEUTESTH01/prices").get_json()
 
     assert data
-    assert all("category" in g and "types" in g for g in data)
-    adult = next(
-        t for g in data if g["category"] == "The Climatec Group East Stand"
-        for t in g["types"] if t["type"] == "Adult"
-    )
+    assert len({p["type"] for p in data}) == len(data), "one row per ticket type"
+
+    adult = next(p for p in data if p["type"] == "Adult")
     assert adult["amount"] == 23.0
+    assert adult["varies"] is False
+    assert data[0]["type"] == "Adult", "dearest first"
 
 
 def test_api_fixtures(seeded, client):

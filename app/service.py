@@ -15,7 +15,6 @@ from app.ktckts import KtcktsClient
 from app.models import (
     Fixture,
     FixturePrice,
-    PriceCategory,
     Segment,
     SegmentSnapshot,
     Snapshot,
@@ -165,45 +164,30 @@ def sync_segments(segments):
 
 
 def sync_prices(fixture, prices):
-    """Replace this fixture's price rows, creating categories as needed."""
-    categories = {c.id: c for c in db.session.scalars(select(PriceCategory)).all()}
-    for data in prices:
-        category = categories.get(data["category_id"])
-        if category is None:
-            category = PriceCategory(id=data["category_id"], name=data["category_name"])
-            db.session.add(category)
-            categories[category.id] = category
-        else:
-            category.name = data["category_name"]
-    db.session.flush()
-
+    """Replace this fixture's aggregated price rows."""
     existing = {
-        (p.category_id, p.price_type_id): p
+        p.name: p
         for p in db.session.scalars(
             select(FixturePrice).where(FixturePrice.fixture_id == fixture.id)
         ).all()
     }
     seen = set()
+
     for data in prices:
-        key = (data["category_id"], data["price_type_id"])
-        seen.add(key)
-        price = existing.get(key)
+        seen.add(data["name"])
+        price = existing.get(data["name"])
         if price is None:
-            price = FixturePrice(
-                fixture_id=fixture.id,
-                category_id=data["category_id"],
-                price_type_id=data["price_type_id"],
-            )
+            price = FixturePrice(fixture_id=fixture.id, name=data["name"])
             db.session.add(price)
-        price.name = data["name"]
         price.amount_pence = data["amount_pence"]
-        price.full_amount_pence = data["full_amount_pence"]
-        price.max_selectable = data["max_selectable"]
+        price.max_amount_pence = data["max_amount_pence"]
         price.restriction = data["restriction"]
+        price.areas = data["areas"]
+        price.category_count = data["category_count"]
         price.sort_order = data["sort_order"]
 
-    for key, price in existing.items():
-        if key not in seen:
+    for name, price in existing.items():
+        if name not in seen:
             db.session.delete(price)
 
 

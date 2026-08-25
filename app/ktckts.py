@@ -258,7 +258,7 @@ class KtcktsClient:
         """
         spec = self.fetch_specification_criteria(product_id)
         segments = parse_segments(spec)
-        prices = parse_prices(spec)
+        prices = aggregate_prices(parse_prices(spec))
 
         seat_totals = None
         if include_seats:
@@ -347,6 +347,81 @@ def parse_prices(spec):
                 }
             )
     return prices
+
+
+def aggregate_prices(prices):
+    """Collapse per-category prices into one list per price type.
+
+    ktckts prices every area separately, but in practice the same figures
+    repeat across all of them: Adult is the same in all fifteen categories
+    that offer it, and so on. Rendering a panel per category just repeats the
+    same six numbers twenty times.
+
+    Amounts are kept as a low/high pair rather than a single figure, so a
+    genuine difference between areas shows as a range instead of one area
+    silently winning.
+    """
+    total_categories = len({p["category_id"] for p in prices})
+    by_name = {}
+
+    for price in prices:
+        entry = by_name.get(price["name"])
+        if entry is None:
+            entry = {
+                "name": price["name"],
+                "amount_pence": price["amount_pence"],
+                "max_amount_pence": price["amount_pence"],
+                "restriction": price["restriction"],
+                "categories": [],
+                "sort_order": price["sort_order"],
+            }
+            by_name[price["name"]] = entry
+
+        amount = price["amount_pence"]
+        if amount is not None:
+            if entry["amount_pence"] is None:
+                entry["amount_pence"] = entry["max_amount_pence"] = amount
+            else:
+                entry["amount_pence"] = min(entry["amount_pence"], amount)
+                entry["max_amount_pence"] = max(entry["max_amount_pence"], amount)
+
+        if price["category_name"] not in entry["categories"]:
+            entry["categories"].append(price["category_name"])
+        # Keep the first restriction seen; they are identical where they exist.
+        if not entry["restriction"] and price["restriction"]:
+            entry["restriction"] = price["restriction"]
+
+    result = []
+    for entry in by_name.values():
+        count = len(entry["categories"])
+        # Hospitality packages (Executive Box, 1906 Club, Captains Suite...)
+        # appear at zero because they are priced through the separate
+        # hospitality brand, not sold here. Listing them at "£0.00" alongside
+        # real ticket prices reads as free, so they are left out. A genuinely
+        # free type offered across the ground, like Carer, still shows.
+        if count * 2 < total_categories and not entry["amount_pence"]:
+            continue
+        # A type offered by most areas is a general matchday price; one
+        # confined to a corner of the ground is named so it still means
+        # something once the per-area breakdown is gone.
+        is_general = total_categories and count * 2 >= total_categories
+        result.append(
+            {
+                "name": entry["name"],
+                "amount_pence": entry["amount_pence"],
+                "max_amount_pence": entry["max_amount_pence"],
+                "restriction": entry["restriction"],
+                "category_count": count,
+                "areas": None if is_general else ", ".join(sorted(entry["categories"])),
+                "sort_order": entry["sort_order"],
+            }
+        )
+
+    # Dearest first, so the headline adult price leads.
+    result.sort(key=lambda p: (-(p["amount_pence"] or 0), p["sort_order"]))
+    for order, entry in enumerate(result):
+        entry["sort_order"] = order
+    return result
 
 
 def parse_seat_status(detail):

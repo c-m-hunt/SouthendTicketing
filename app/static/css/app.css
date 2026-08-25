@@ -291,13 +291,13 @@ a { color: var(--navy-soft); }
 
 /* --- prices --- */
 
-.prices { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1rem; }
-.price-group { border: 1px solid var(--border); border-radius: 10px; padding: .85rem 1rem; }
-.price-group h3 { margin: 0 0 .5rem; font-size: .95rem; }
-.price-table { width: 100%; border-collapse: collapse; font-size: .87rem; }
-.price-table th { text-align: left; font-weight: 500; padding: .25rem 0; vertical-align: top; }
-.price-table td { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; padding: .25rem 0; white-space: nowrap; }
-.price-note { display: block; font-size: .74rem; color: var(--text-soft); font-weight: 400; }
+.price-table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+.price-table th { text-align: left; font-weight: 500; padding: .55rem 0; vertical-align: top; }
+.price-table td { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; padding: .55rem 0; white-space: nowrap; }
+.price-table--single tr + tr th,
+.price-table--single tr + tr td { border-top: 1px solid var(--border); }
+.price-table--single { max-width: 32rem; }
+.price-note { display: block; font-size: .78rem; color: var(--text-soft); font-weight: 400; margin-top: .1rem; }
 
 /* --- footer --- */
 

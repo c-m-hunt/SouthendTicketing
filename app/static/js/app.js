@@ -222,48 +222,42 @@
       .catch(function () { /* prices are a nice-to-have; stay quiet */ });
   }
 
-  function renderPrices(groups) {
-    if (!groups || !groups.length) { return; }
+  function renderPrices(prices) {
+    if (!prices || !prices.length) { return; }
     var host = el("prices");
     host.textContent = "";
 
-    groups.forEach(function (group) {
-      var wrap = document.createElement("div");
-      wrap.className = "price-group";
+    prices.forEach(function (item) {
+      var row = document.createElement("tr");
 
-      var heading = document.createElement("h3");
-      heading.textContent = group.category || "Tickets";
-      wrap.appendChild(heading);
+      var th = document.createElement("th");
+      th.scope = "row";
+      th.appendChild(document.createTextNode(item.type));
 
-      var table = document.createElement("table");
-      table.className = "price-table";
-      var tbody = document.createElement("tbody");
+      // Restrictions and area limits are the only per-ticket detail left now
+      // that the per-area breakdown has gone.
+      var notes = [];
+      if (item.restriction) { notes.push(item.restriction); }
+      if (item.areas) { notes.push(item.areas); }
+      if (notes.length) {
+        var note = document.createElement("span");
+        note.className = "price-note";
+        note.textContent = notes.join(" · ");
+        th.appendChild(note);
+      }
 
-      group.types.forEach(function (item) {
-        var row = document.createElement("tr");
+      var td = document.createElement("td");
+      if (item.amount === null || item.amount === undefined) {
+        td.textContent = "—";
+      } else if (item.varies) {
+        td.textContent = gbp.format(item.amount) + "–" + gbp.format(item.max_amount);
+      } else {
+        td.textContent = gbp.format(item.amount);
+      }
 
-        var th = document.createElement("th");
-        th.scope = "row";
-        th.appendChild(document.createTextNode(item.type));
-        if (item.restriction) {
-          var note = document.createElement("span");
-          note.className = "price-note";
-          note.textContent = item.restriction;
-          th.appendChild(note);
-        }
-
-        var td = document.createElement("td");
-        td.textContent = (item.amount === null || item.amount === undefined)
-          ? "—" : gbp.format(item.amount);
-
-        row.appendChild(th);
-        row.appendChild(td);
-        tbody.appendChild(row);
-      });
-
-      table.appendChild(tbody);
-      wrap.appendChild(table);
-      host.appendChild(wrap);
+      row.appendChild(th);
+      row.appendChild(td);
+      host.appendChild(row);
     });
 
     el("prices-panel").hidden = false;

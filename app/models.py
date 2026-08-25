@@ -3,8 +3,8 @@
 The ktckts data source exposes considerably more than the old ASP.NET site:
 a full hierarchical stadium map, per-block open/total counts, per-seat status
 grids and per-category pricing. The schema below splits that into a stable
-stadium catalogue (Segment, PriceCategory) and time-series observations
-(Snapshot, SegmentSnapshot).
+stadium catalogue (Segment) and time-series observations (Snapshot,
+SegmentSnapshot), with prices aggregated per fixture.
 """
 
 import datetime as dt
@@ -108,49 +108,46 @@ class Segment(db.Model):
         return f"<Segment {self.code} {self.name}>"
 
 
-class PriceCategory(db.Model):
-    """A ktckts price category, e.g. "The Climatec Group East Stand"."""
-
-    __tablename__ = "price_category"
-
-    id = db.Column(db.String(64), primary_key=True)
-    name = db.Column(db.String(128))
-
-    def __repr__(self):
-        return f"<PriceCategory {self.name}>"
-
-
 class FixturePrice(db.Model):
-    """Price for one category/type combination at one fixture.
+    """One ticket price for a fixture, aggregated across the ground.
 
-    Prices are per fixture because ktckts can vary them by match, so this
-    cannot collapse into the category catalogue.
+    ktckts prices every area separately, but the same figures repeat across
+    all of them, so prices are collapsed to one row per type at ingest.
+    ``amount_pence`` and ``max_amount_pence`` are equal when every area
+    charges the same, which is the usual case; a difference surfaces as a
+    range rather than letting one area stand in for the rest.
     """
 
     __tablename__ = "fixture_price"
-    __table_args__ = (
-        db.UniqueConstraint("fixture_id", "category_id", "price_type_id", name="uq_fixture_price"),
-    )
+    __table_args__ = (db.UniqueConstraint("fixture_id", "name", name="uq_fixture_price"),)
 
     id = db.Column(db.Integer, primary_key=True)
     fixture_id = db.Column(db.Integer, db.ForeignKey("fixture.id"), nullable=False, index=True)
-    category_id = db.Column(db.String(64), db.ForeignKey("price_category.id"), nullable=False)
-    price_type_id = db.Column(db.String(64), nullable=False)
 
-    name = db.Column(db.String(64))  # Adult, Senior (63+), ...
+    name = db.Column(db.String(64), nullable=False)  # Adult, Senior (63+), ...
     amount_pence = db.Column(db.Integer)
-    full_amount_pence = db.Column(db.Integer)
-    max_selectable = db.Column(db.Integer)
+    max_amount_pence = db.Column(db.Integer)
     restriction = db.Column(db.String(255))  # noneSelectableReason
+    # Areas offering this type, named only when it is not sold ground-wide.
+    areas = db.Column(db.String(512))
+    category_count = db.Column(db.Integer, default=0)
     sort_order = db.Column(db.Integer, default=0)
-
-    category = db.relationship("PriceCategory")
 
     @property
     def amount(self):
         if self.amount_pence is None:
             return None
         return self.amount_pence / 100.0
+
+    @property
+    def max_amount(self):
+        if self.max_amount_pence is None:
+            return None
+        return self.max_amount_pence / 100.0
+
+    @property
+    def varies(self):
+        return self.amount_pence != self.max_amount_pence
 
     def __repr__(self):
         return f"<FixturePrice {self.name} {self.amount_pence}p>"

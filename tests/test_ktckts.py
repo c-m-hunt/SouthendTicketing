@@ -207,6 +207,88 @@ def test_parse_prices(spec_payload):
     assert all(p["category_id"].startswith("prcat_") for p in prices)
 
 
+def test_aggregate_prices_collapses_identical_categories(spec_payload):
+    """The same six figures repeat across every area, so collapse them."""
+    raw = ktckts.parse_prices(spec_payload)
+    aggregated = ktckts.aggregate_prices(raw)
+
+    assert len(raw) > len(aggregated)
+    assert len({p["name"] for p in aggregated}) == len(aggregated), "one row per type"
+
+    adult = next(p for p in aggregated if p["name"] == "Adult")
+    assert adult["amount_pence"] == 2300
+    assert adult["max_amount_pence"] == 2300
+    assert adult["areas"] is None, "a ground-wide price needs no area note"
+    assert adult["category_count"] > 1
+
+    # Dearest first, so the headline adult price leads.
+    amounts = [p["amount_pence"] for p in aggregated]
+    assert amounts == sorted(amounts, reverse=True)
+    assert aggregated[0]["name"] == "Adult"
+
+
+def test_aggregate_prices_reports_a_range_when_areas_differ():
+    """A genuine difference must show as a range, not one area winning."""
+    raw = [
+        {
+            "category_id": "prcat_1", "category_name": "East", "price_type_id": "t1",
+            "name": "Adult", "amount_pence": 2300, "full_amount_pence": 2300,
+            "max_selectable": 12, "restriction": "", "sort_order": 0,
+        },
+        {
+            "category_id": "prcat_2", "category_name": "West", "price_type_id": "t2",
+            "name": "Adult", "amount_pence": 2600, "full_amount_pence": 2600,
+            "max_selectable": 12, "restriction": "", "sort_order": 1,
+        },
+    ]
+    adult = next(p for p in ktckts.aggregate_prices(raw) if p["name"] == "Adult")
+
+    assert adult["amount_pence"] == 2300
+    assert adult["max_amount_pence"] == 2600
+    assert adult["category_count"] == 2
+
+
+def test_aggregate_prices_drops_zero_priced_hospitality_placeholders(spec_payload):
+    """Hospitality packages sit at zero because they sell elsewhere.
+
+    Listing them beside real prices would read as free tickets.
+    """
+    aggregated = ktckts.aggregate_prices(ktckts.parse_prices(spec_payload))
+    names = {p["name"] for p in aggregated}
+
+    assert "Executive Box" not in names
+    assert "1906 Club" not in names
+    assert "Captains Suite" not in names
+    # A genuinely free type offered across the ground survives.
+    assert "Carer" in names
+    assert names == {
+        "Adult", "Senior (63+)", "Young Adult (17-22)",
+        "Junior (9-16)", "Child (8 and under)", "Carer",
+    }
+
+
+def test_aggregate_prices_names_areas_for_area_specific_types():
+    """A priced type confined to one area keeps that context."""
+    raw = [
+        {
+            "category_id": f"prcat_{i}", "category_name": f"Area {i}", "price_type_id": f"t{i}",
+            "name": "Adult", "amount_pence": 2300, "full_amount_pence": 2300,
+            "max_selectable": 12, "restriction": "", "sort_order": i,
+        }
+        for i in range(4)
+    ]
+    raw.append({
+        "category_id": "prcat_x", "category_name": "Directors Box", "price_type_id": "tx",
+        "name": "Matchday Lunch", "amount_pence": 9500, "full_amount_pence": 9500,
+        "max_selectable": 4, "restriction": "", "sort_order": 9,
+    })
+    aggregated = ktckts.aggregate_prices(raw)
+
+    lunch = next(p for p in aggregated if p["name"] == "Matchday Lunch")
+    assert lunch["areas"] == "Directors Box", "an area-specific price says where"
+    assert next(p for p in aggregated if p["name"] == "Adult")["areas"] is None
+
+
 @pytest.mark.parametrize(
     "text, expected",
     [("£23.00", 2300), ("£8.50", 850), ("£0.00", 0), ("£1,234.00", 123400), ("", None), (None, None)],
