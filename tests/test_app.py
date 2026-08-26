@@ -297,6 +297,20 @@ def test_admin_requires_token_when_configured(seeded, client, flask_app):
         flask_app.config["ADMIN_TOKEN"] = None
 
 
+def test_analytics_tag_is_rendered_when_configured(seeded, client, flask_app, monkeypatch):
+    monkeypatch.setitem(flask_app.config, "GA_MEASUREMENT_ID", "G-TESTID1234")
+    body = client.get("/").get_data(as_text=True)
+    assert "googletagmanager.com/gtag/js?id=G-TESTID1234" in body
+    assert 'gtag(\'config\', "G-TESTID1234")' in body
+
+
+def test_analytics_tag_can_be_turned_off(seeded, client, flask_app, monkeypatch):
+    """An empty measurement ID serves the site without the third-party script."""
+    monkeypatch.setitem(flask_app.config, "GA_MEASUREMENT_ID", "")
+    body = client.get("/").get_data(as_text=True)
+    assert "googletagmanager" not in body
+
+
 def test_healthz(client):
     assert client.get("/healthz").get_json() == {"status": "ok"}
 

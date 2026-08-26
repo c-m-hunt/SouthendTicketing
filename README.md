@@ -99,6 +99,24 @@ exists — ktckts lists only home fixtures — and its sold figure was guesswork
 even then. `Fixture.is_home` is retained so away matches can be reintroduced
 if the club starts selling them here.
 
+### Analytics
+
+Google Analytics 4, property **SUFC Ticket Stats** under the personal
+`Chris Hunt` account (`396396`), web stream `sufc-tickets.chris-hunt.net`.
+
+`GA_MEASUREMENT_ID` in `config.py` holds the measurement ID. It is a public
+identifier — every site using GA ships one in its page source — so it is a
+default in the repo rather than a secret, which keeps the deploy from needing
+another environment variable in the cluster manifest. The tag renders only
+when it is non-empty, so `GA_MEASUREMENT_ID=` turns analytics off for a local
+run or a fork.
+
+Nothing about consent is wired up: the tag sets GA's cookies as soon as the
+page loads, which UK PECR expects visitors to have agreed to first. Options,
+if that matters here, are a consent banner in front of the tag or cookieless
+measurement (`client_storage: 'none'`), which costs returning-visitor
+figures.
+
 ## Running it
 
 Dependencies are managed with [uv](https://docs.astral.sh/uv/); `uv run`

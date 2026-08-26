@@ -29,3 +29,11 @@ FIXTURE_REFRESH_SECONDS = int(os.environ.get("FIXTURE_REFRESH_SECONDS", "3600"))
 
 # Guards the /admin/* endpoints when set.
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN")
+
+# --- analytics ----------------------------------------------------------
+# GA4 measurement ID for sufc-tickets.chris-hunt.net. It is a public
+# identifier — it ships in the page source of every site that uses one — so it
+# lives here rather than in a secret, which also keeps the deploy from needing
+# an extra environment variable in the cluster manifest. Set it to an empty
+# string to serve the site without analytics.
+GA_MEASUREMENT_ID = os.environ.get("GA_MEASUREMENT_ID", "G-V6DXY889G9")
