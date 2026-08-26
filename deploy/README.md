@@ -1,3 +1,33 @@
+> [!IMPORTANT]
+> **Superseded — scheduled for retirement.**
+>
+> The site now deploys to the DigitalOcean cluster at
+> `sufc-tickets.chris-hunt.net`, via GitHub Actions → ECR → the manifest in
+> [`c-m-hunt/server-setup`](https://github.com/c-m-hunt/server-setup)
+> (`tf/modules/sites/sufc-tickets`). This GCP deployment was left running
+> deliberately, so something was serving while the new path was proven.
+>
+> Tear it down once the cluster host has been stable for a while.
+>
+> **Do not start until**
+> - [ ] `sufc-tickets.chris-hunt.net` resolves and serves over HTTPS
+> - [ ] The sales-over-time chart shows data accumulating from the cluster's
+>       own CronJob — the one thing that proves the volume is persisting
+>
+> **Then, in this repo**
+> - [ ] `deploy/compose.prod.yaml` — delete, or keep purely for running the
+>       production image locally (`compose.yaml` already covers dev)
+> - [ ] This file
+> - [ ] The GCP deployment and sslip.io sections of the root `README.md`
+>
+> **And outside it**
+> - [ ] Stop and delete the `southend-tickets` VM
+> - [ ] Release its static IP, if one was reserved
+> - [ ] Remove the firewall rule if nothing else uses it
+> - [ ] Check for a cron or systemd timer on that VM doing refreshes. The
+>       cluster CronJob polls every 15 minutes, and two of them hitting the
+>       club's ticketing site is worth avoiding.
+
 # Deploying to GCP
 
 The app runs on a Google Compute Engine `e2-micro`, which sits inside the
