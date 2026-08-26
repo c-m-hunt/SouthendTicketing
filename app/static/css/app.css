@@ -184,6 +184,8 @@ a { color: var(--navy-soft); }
   .stat--primary .stat__value { color: #7fb2ff; }
 }
 .stat--muted .stat__value { color: var(--text-muted); }
+/* Ties the tile to the outlined blocks on the map. */
+.stat--away .stat__value { color: var(--away); }
 
 .stat__value {
   font-size: 2.1rem;
@@ -536,8 +538,9 @@ g[data-code]:focus-visible .seg-shape { stroke: var(--text); stroke-width: 18; }
     border-right: 1px solid var(--border);
     border-bottom: 1px solid var(--border);
   }
-  .stat:nth-child(2n)       { border-right: none; }
-  .stat:nth-last-child(-n+2) { border-bottom: none; }
+  .stat:nth-child(2n) { border-right: none; }
+  /* Five tiles leave the last one alone on its row, so let it span. */
+  .stat:last-child { grid-column: 1 / -1; border-right: none; border-bottom: none; }
   .stat__value { font-size: 1.7rem; }
   .stat { padding: .9rem 1.1rem; }
 }

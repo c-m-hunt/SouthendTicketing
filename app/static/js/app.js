@@ -14,6 +14,18 @@
     return nodes.filter(function (node) { return node.away; });
   }
 
+  /* The away end sells through the club's own system, so its seats are
+     already inside the headline totals; this pulls them back out. */
+  function awayTotals(blocks) {
+    return awayLeaves(blocks).reduce(function (acc, block) {
+      acc.sold += block.sold || 0;
+      acc.total += block.total || 0;
+      acc.open += block.open || 0;
+      if (block.in_use) { acc.open_blocks.push(block); }
+      return acc;
+    }, { sold: 0, total: 0, open: 0, open_blocks: [] });
+  }
+
   function names(nodes) {
     var list = nodes.map(function (node) { return node.name || node.code; });
     if (list.length < 2) { return list.join(""); }
@@ -45,12 +57,18 @@
     status.textContent = message;
   }
 
-  function renderTotals(data, soldOutBlocks) {
+  function renderTotals(data, soldOutBlocks, away) {
     var t = data.totals;
     el("stat-sold").textContent = fmt(t.sold);
     el("stat-available").textContent = fmt(t.available);
     el("stat-capacity").textContent = fmt(t.capacity);
     el("stat-soldout").textContent = fmt(soldOutBlocks);
+
+    // No allocation is not the same as an allocation nobody has bought.
+    el("stat-away").textContent = away.total ? fmt(away.sold) : "—";
+    el("stat-away-sub").textContent = away.total
+      ? "of " + fmt(away.total) + " in " + names(away.open_blocks)
+      : "none on sale for this fixture";
     el("stat-sold-pct").textContent = t.percent_sold + "% of seats in use";
     el("stats").hidden = false;
 
@@ -266,9 +284,10 @@
       });
     })
     .then(function (data) {
-      renderTotals(data, countSoldOut(data.stands));
+      var blocks = flatten(data.stands);
+      renderTotals(data, countSoldOut(data.stands), awayTotals(blocks));
       renderStands(data.stands);
-      loadMap(data.stands);
+      loadMap(blocks);
       setStatus("ok", "Live from the club’s ticketing system at " + data.retrieved_at + " UTC.");
       loadHistory();
       loadPrices();
@@ -291,7 +310,7 @@
     return into;
   }
 
-  function loadMap(stands) {
+  function loadMap(blocks) {
     var host = el("stadium-map");
     if (!host) { return; }
 
@@ -308,7 +327,7 @@
         if (!svg || svg.nodeName === "parsererror") { throw new Error("map did not parse"); }
 
         host.appendChild(document.importNode(svg, true));
-        paintMap(flatten(stands));
+        paintMap(blocks);
       })
       .catch(function () {
         // The block list below already carries the same numbers.

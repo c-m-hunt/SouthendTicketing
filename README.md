@@ -61,9 +61,12 @@ fixture*, not never sold here, and the two must not look alike.
 
 `stadium_map.AWAY_BLOCKS` is the single source of that fact. Every block
 carries an `away` flag through the API, which the page uses to outline those
-blocks on the map, tag them AWAY, and list them under their own heading —
-including the ones that are shut, since which of them is open is exactly what
-someone looking at an away game wants to know. A closed away block is hatched
+blocks on the map, tag them AWAY, list them under their own heading, and
+total them into an "away tickets sold" headline stat — including the ones
+that are shut, since which of them is open is exactly what someone looking at
+an away game wants to know. Those seats sell through the club's own system,
+so they are already inside the overall sold figure; the tile pulls them back
+out rather than adding to it. A closed away block is hatched
 rather than greyed out: ktckts publishes a seat grid only for inventory on
 sale, so `has_seats` is false for it, but the seats are plainly there.
 
