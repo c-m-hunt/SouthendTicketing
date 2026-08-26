@@ -178,7 +178,11 @@
 
       var counts = document.createElement("span");
       counts.className = "stand__counts";
-      counts.innerHTML = "<strong>" + fmt(stand.open) + "</strong> available of " + fmt(stand.total);
+      // Season tickets come back without a total, so there is no "of N" to
+      // quote — just say how many are left.
+      counts.innerHTML = stand.total
+        ? "<strong>" + fmt(stand.open) + "</strong> available of " + fmt(stand.total)
+        : "<strong>" + fmt(stand.open) + "</strong> available";
 
       head.appendChild(name);
       head.appendChild(counts);
@@ -263,6 +267,9 @@
     if (block.sold_out) {
       return "sold out — all " + fmt(block.total) + " seats gone";
     }
+    if (!block.total) {
+      return fmt(block.open) + " available";
+    }
     return fmt(block.open) + " of " + fmt(block.total) + " available";
   }
 
@@ -294,7 +301,10 @@
         detail.textContent = blockDetail(block);
         tip.appendChild(detail);
 
-        if (block.in_use && !block.sold_out) {
+        // The bar shows what proportion of the block is left, so it needs a
+        // total to divide by. Season tickets have none, and the count alone
+        // tells the story there.
+        if (block.in_use && !block.sold_out && block.total) {
           var bar = document.createElement("span");
           bar.className = "map-tip__bar";
           var fill = document.createElement("i");
