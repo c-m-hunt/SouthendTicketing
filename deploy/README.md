@@ -68,16 +68,40 @@ need to rebuild the instance.
 
 ## Serving over HTTPS
 
-Caddy answers on `:80` by default, which is all a bare IP can do — Let's
-Encrypt will not issue for an IP address. Point a domain at the instance and
-set `SITE_ADDRESS`, and Caddy handles the certificate itself:
+Currently live at **https://34.70.17.54.sslip.io/**.
+
+Let's Encrypt will not issue a certificate for a bare IP, so the site borrows
+a hostname from [sslip.io](https://sslip.io), a wildcard DNS service that
+resolves `<ip>.sslip.io` back to that IP. That is a real name, so Caddy can
+complete an ACME challenge against it and serve a genuine certificate.
+
+The address is set in `deploy/.env` on the VM, which is untracked and so
+survives the startup script's `git reset --hard`:
 
 ```sh
-# in /opt/southend-ticketing/deploy on the VM
-SITE_ADDRESS=tickets.example.com docker compose -f compose.prod.yaml up -d
+# /opt/southend-ticketing/deploy/.env
+SITE_ADDRESS=34.70.17.54.sslip.io
 ```
 
-Give the instance a static IP first, otherwise the address changes on stop:
+Two caveats for anything longer-lived than a demo:
+
+* The hostname contains the IP, so it changes if the instance's ephemeral
+  address does. Reserve a static one before relying on it.
+* `sslip.io` is not on the Public Suffix List, so every certificate issued
+  under it shares one Let's Encrypt rate-limit bucket. Issuance can fail when
+  other people have exhausted it.
+
+Swapping to a real domain is the same mechanism — point it at the instance,
+change `SITE_ADDRESS`, and restart:
+
+```sh
+cd /opt/southend-ticketing/deploy
+echo "SITE_ADDRESS=tickets.example.com" | sudo tee .env
+sudo docker compose -f compose.prod.yaml up -d
+```
+
+Reserve a static IP first, otherwise the address changes whenever the instance
+stops:
 
 ```sh
 gcloud compute addresses create southend-tickets-ip --region=us-central1 \
