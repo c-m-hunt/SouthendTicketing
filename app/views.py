@@ -186,6 +186,8 @@ def api_historic(game_code):
         .order_by(Snapshot.captured_at.asc())
         .all()
     )
+    # Today at full resolution, earlier days at one reading every two hours.
+    snapshots = service.thin_history(snapshots, service.local_day_start())
     return jsonify(
         [
             {

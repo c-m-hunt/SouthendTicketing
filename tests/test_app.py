@@ -259,6 +259,139 @@ def test_api_latest_reports_upstream_failure(seeded, client, monkeypatch, flask_
     assert "error" in response.get_json()
 
 
+# -- history thinning -----------------------------------------------------
+
+
+class _Row:
+    """Stands in for a Snapshot row; thin_history only reads captured_at."""
+
+    def __init__(self, captured_at, sold):
+        self.captured_at = captured_at
+        self.sold = sold
+
+
+def test_thin_history_keeps_todays_readings_whole():
+    import datetime as dt
+
+    from app import service
+
+    day_start = dt.datetime(2026, 8, 25, 23, 0)  # midnight BST
+    rows = [_Row(day_start + dt.timedelta(minutes=10 * i), 100 + i) for i in range(12)]
+
+    kept = service.thin_history(rows, day_start)
+    assert kept == rows, "today must not be thinned"
+
+
+def test_thin_history_keeps_the_last_reading_of_each_two_hour_bucket():
+    """Totals are cumulative, so the bucket's final reading is its figure."""
+    import datetime as dt
+
+    from app import service
+
+    day_start = dt.datetime(2026, 8, 25, 23, 0)
+    # Four readings across two buckets, all before today.
+    rows = [
+        _Row(dt.datetime(2026, 8, 24, 10, 5), 10),
+        _Row(dt.datetime(2026, 8, 24, 11, 55), 20),  # last of the 10:00-12:00 bucket
+        _Row(dt.datetime(2026, 8, 24, 12, 5), 30),
+        _Row(dt.datetime(2026, 8, 24, 13, 40), 40),  # last of the 12:00-14:00 bucket
+    ]
+
+    kept = service.thin_history(rows, day_start)
+    assert [r.sold for r in kept] == [20, 40]
+
+
+def test_thin_history_flushes_the_last_old_bucket_before_today():
+    """A part-filled bucket running up to midnight must still be emitted."""
+    import datetime as dt
+
+    from app import service
+
+    day_start = dt.datetime(2026, 8, 25, 23, 0)
+    rows = [
+        _Row(dt.datetime(2026, 8, 25, 22, 5), 1),
+        _Row(dt.datetime(2026, 8, 25, 22, 30), 2),  # last before the boundary
+        _Row(dt.datetime(2026, 8, 25, 23, 5), 3),   # first of today
+    ]
+
+    assert [r.sold for r in service.thin_history(rows, day_start)] == [2, 3]
+
+
+def test_thin_history_buckets_are_aligned_to_the_clock():
+    """Two readings an hour apart can still land in different buckets.
+
+    Windows are fixed on the clock, not measured from the first reading, so
+    21:00 closes one bucket and 22:30 opens the next.
+    """
+    import datetime as dt
+
+    from app import service
+
+    day_start = dt.datetime(2026, 8, 25, 23, 0)
+    rows = [
+        _Row(dt.datetime(2026, 8, 25, 21, 0), 1),   # 20:00-22:00 window
+        _Row(dt.datetime(2026, 8, 25, 22, 30), 2),  # 22:00-00:00 window
+    ]
+
+    assert [r.sold for r in service.thin_history(rows, day_start)] == [1, 2]
+
+
+def test_thin_history_handles_an_empty_series():
+    import datetime as dt
+
+    from app import service
+
+    assert service.thin_history([], dt.datetime(2026, 8, 25, 23, 0)) == []
+
+
+def test_local_day_start_follows_british_summer_time():
+    """UTC midnight would eat the first hour of today for half the year."""
+    import datetime as dt
+
+    from app import service
+
+    # 26 Aug is BST (UTC+1): local midnight is 23:00 UTC the day before.
+    summer = service.local_day_start(dt.datetime(2026, 8, 26, 12, 0))
+    assert summer == dt.datetime(2026, 8, 25, 23, 0)
+
+    # 26 Jan is GMT: local midnight is UTC midnight.
+    winter = service.local_day_start(dt.datetime(2026, 1, 26, 12, 0))
+    assert winter == dt.datetime(2026, 1, 26, 0, 0)
+
+
+def test_api_historic_thins_older_days(seeded, client, flask_app):
+    """The endpoint returns one point per two hours for anything before today."""
+    import datetime as dt
+
+    from app import db, service
+    from app.models import Snapshot
+
+    fixture = service.find_fixture("SEUTESTH01")
+    db.session.query(Snapshot).filter(Snapshot.fixture_id == fixture.id).delete()
+
+    # Start on a bucket boundary so the arithmetic below is plain.
+    base = (service.local_day_start() - dt.timedelta(days=2)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    # 24 readings 30 minutes apart across 12 hours: 6 two-hour buckets.
+    for i in range(24):
+        db.session.add(
+            Snapshot(
+                fixture_id=fixture.id,
+                captured_at=base + dt.timedelta(minutes=30 * i),
+                capacity=1000,
+                available=1000 - i,
+                sold=i,
+            )
+        )
+    db.session.commit()
+
+    data = client.get("/api/SEUTESTH01/historic").get_json()
+    assert len(data) == 6, "12 hours of old readings should thin to 6 points"
+    # Each point is the last reading of its bucket: indexes 3, 7, 11, ...
+    assert [d["sold"] for d in data] == [3, 7, 11, 15, 19, 23]
+
+
 def test_api_historic(seeded, client):
     from app import service
 

@@ -7,6 +7,7 @@ shell without going through HTTP.
 import datetime as dt
 import logging
 import threading
+import zoneinfo
 
 from sqlalchemy import select
 
@@ -344,6 +345,65 @@ def venue_map():
         _map_markup, _map_codes = markup, tuple(codes)
         log.info("Venue map loaded: %s blocks", len(codes))
         return _map_markup, _map_codes
+
+
+# -- history -------------------------------------------------------------
+
+# The chart is read closely on the day of a match and only skimmed for the
+# weeks before it, so today keeps every reading and older days are thinned to
+# one point every two hours.
+HISTORY_BUCKET_SECONDS = 2 * 60 * 60
+LOCAL_TZ = "Europe/London"
+_EPOCH = dt.datetime(1970, 1, 1)
+
+
+def local_day_start(now=None):
+    """Midnight this morning UK time, as naive UTC to match the stored rows.
+
+    UTC midnight would be the easier boundary and the wrong one for five
+    months of the year: through British Summer Time it falls at 01:00 local,
+    so the first hour of someone's today would be thinned away as history.
+    """
+    now = now or utcnow()
+    local = now.replace(tzinfo=dt.timezone.utc).astimezone(zoneinfo.ZoneInfo(LOCAL_TZ))
+    midnight = local.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(dt.timezone.utc).replace(tzinfo=None)
+
+
+def thin_history(snapshots, day_start, bucket_seconds=HISTORY_BUCKET_SECONDS):
+    """Reduce pre-today readings to the last one in each bucket.
+
+    Snapshots hold running totals rather than per-period counts, so a bucket
+    is represented by its final reading — what had sold by the end of it.
+    Summing or averaging would invent figures the ground never held.
+
+    Buckets are fixed two-hour windows on the clock rather than offsets from
+    the first reading, so a given point keeps its meaning as new snapshots
+    arrive instead of the whole series shifting under the chart.
+
+    Expects rows ordered by ``captured_at`` ascending, as the caller reads
+    them.
+    """
+    kept = []
+    bucket = None
+    pending = None
+
+    for snapshot in snapshots:
+        if snapshot.captured_at >= day_start:
+            if pending is not None:
+                kept.append(pending)
+                pending, bucket = None, None
+            kept.append(snapshot)
+            continue
+
+        current = int((snapshot.captured_at - _EPOCH).total_seconds() // bucket_seconds)
+        if pending is not None and current != bucket:
+            kept.append(pending)
+        bucket, pending = current, snapshot
+
+    if pending is not None:
+        kept.append(pending)
+    return kept
 
 
 # -- queries -------------------------------------------------------------

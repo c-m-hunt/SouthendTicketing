@@ -95,6 +95,23 @@ across each block), the placeholder purple fill is stripped so the stylesheet
 can colour blocks, block letters are made themeable, and anything active is
 removed before it goes into the page.
 
+### Thinning the history
+
+`/api/<code>/historic` does not return every snapshot. Today is served whole;
+earlier days are reduced to the last reading in each two-hour window. On a
+fixture three weeks into its sale that is 6,414 points down to 647, most of
+which were drawing sub-pixel on an 800px chart anyway.
+
+The last reading of a window rather than an average or a sum: the figures are
+running totals, so the closing reading is what had sold by the end of it,
+while the other two would invent numbers the ground never held. Windows are
+fixed on the clock rather than measured from the first reading, so points
+keep their meaning as new snapshots land instead of the series shifting.
+
+"Today" starts at midnight UK time, not UTC. Through British Summer Time the
+two differ by an hour, and UTC midnight would thin away the first hour of
+what a reader considers today.
+
 ### Away fixtures
 
 Dropped. The old site scraped a separate away-tickets page that no longer
@@ -237,7 +254,7 @@ re-scrape of the club's site, so `ADMIN_TOKEN` is always set.
 | --- | --- |
 | `GET /api/fixtures` | Upcoming fixtures with their latest totals |
 | `GET /api/<code>/latest` | Live availability, including the full stand tree |
-| `GET /api/<code>/historic` | Snapshot history for the trend chart |
+| `GET /api/<code>/historic` | Snapshot history for the trend chart, thinned |
 | `GET /api/<code>/prices` | Prices grouped by category |
 | `GET /map.svg` | Roots Hall plan, prepared for inlining |
 | `GET /healthz` | Liveness probe |

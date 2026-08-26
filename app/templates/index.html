@@ -128,7 +128,11 @@
 
   <section class="panel">
     <h2>Sales over time</h2>
-    <p class="panel__note">Recorded each time availability is refreshed, at most once every {{ (config.SNAPSHOT_MIN_INTERVAL_SECONDS // 60) }} minutes.</p>
+    <p class="panel__note">
+      Recorded each time availability is refreshed, at most once every
+      {{ (config.SNAPSHOT_MIN_INTERVAL_SECONDS // 60) }} minutes. Today is
+      shown in full; earlier days are thinned to one reading every two hours.
+    </p>
     <div id="chart" class="chart"></div>
   </section>
 
