@@ -1,0 +1,36 @@
+# Production stack: the app behind Caddy, which terminates TLS.
+# Run from the repo root:  docker compose -f deploy/compose.prod.yaml up -d
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - data:/data
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      # Set SITE_ADDRESS to a domain to switch on automatic HTTPS.
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    depends_on:
+      - web
+
+volumes:
+  data:
+  caddy_data:
+  caddy_config:
