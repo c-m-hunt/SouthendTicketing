@@ -1,0 +1,16 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - data:/data
+    environment:
+      DATABASE_URL: sqlite:////data/app.db
+      # Optional overrides — uncomment to change defaults:
+      # AVAILABILITY_CACHE_SECONDS: "120"
+      # SNAPSHOT_MIN_INTERVAL_SECONDS: "600"
+      # ADMIN_TOKEN: "changeme"
+
+volumes:
+  data:
