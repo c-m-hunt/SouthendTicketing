@@ -1,0 +1,210 @@
+name: Deploy to ECR
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'deploy/**'
+      - 'README.md'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-ecr
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: eu-west-1
+  ECR_REPOSITORY: sites/sufc-tickets
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  # Gate. Nothing is built or pushed until this passes — see `needs` below.
+  #
+  # No AWS credentials and no network fixtures: the suite runs against payloads
+  # recorded from the club's ticketing site under tests/data, so it fails on an
+  # upstream shape change rather than on the club having a bad afternoon.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:latest
+            ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # Run the thing we just built, before telling the cluster to run it.
+      #
+      # The test job above cannot be this check: it imports from the source
+      # tree, where every file obviously exists. The image is a different set
+      # of files, assembled by the Dockerfile — a missing COPY, a dependency
+      # that only lives in the dev group, or a permissions mistake on /data all
+      # pass the tests and still produce a container that dies at start-up.
+      #
+      # Pulled back from ECR rather than reused from the build, so what runs is
+      # the artefact the cluster will pull, digest and all.
+      #
+      # This sits before the digest bump deliberately: if it fails, the job
+      # stops, the manifest keeps pointing at the last image known to boot, and
+      # the site stays up. A pushed-but-unreferenced image costs pennies.
+      - name: Smoke test the built image
+        env:
+          IMAGE: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.build.outputs.digest }}
+        run: |
+          set -euo pipefail
+
+          docker pull "$IMAGE"
+          docker run -d --name smoke -p 8080:8080 "$IMAGE"
+
+          # Boot, or say why not. A container that has already exited is the
+          # ImportError case and there is no point waiting 60s for it.
+          #
+          # Nothing below pipes into a reader that can exit early: pipefail is
+          # on, and something like `curl … | grep -q` closes the pipe on its
+          # first match, killing curl with SIGPIPE and failing the step
+          # *because the check succeeded*.
+          up=0
+          for i in $(seq 1 40); do
+            if [ -z "$(docker ps --filter name=smoke --filter status=running -q)" ]; then
+              echo "::error::container exited during boot"
+              docker logs smoke 2>&1 | tail -40
+              exit 1
+            fi
+            # stderr discarded: curl complains once a second while gunicorn is
+            # still forking, and that noise buries the real error when there is
+            # one. /healthz touches neither the database nor the network, so it
+            # answers as soon as the app is importable and serving.
+            if curl -fsS -o /dev/null --max-time 5 http://localhost:8080/healthz 2>/dev/null; then
+              up=1; echo "booted after ${i}s"; break
+            fi
+            sleep 1
+          done
+          if [ "$up" -ne 1 ]; then
+            echo "::error::never answered /healthz within 40s"
+            docker logs smoke 2>&1 | tail -40
+            exit 1
+          fi
+
+          fail=0
+
+          # The home page is the one route that exercises the whole stack:
+          # template rendering, the SQLite file under /data, and the first
+          # scrape of the fixture list. It is allowed a long timeout because a
+          # cold database fetches that list before it can render, and it must
+          # still return 200 if the club's site is unreachable — the empty
+          # state is a rendered page, not an error.
+          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 90 http://localhost:8080/)
+          printf '  %-16s %s\n' "/" "$code"
+          [ "$code" = "200" ] || { echo "::error::/ returned ${code}"; fail=1; }
+
+          # Proves the app's own 404 handler renders, rather than the container
+          # handing back a framework stack trace.
+          notfound=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://localhost:8080/no-such-fixture)
+          printf '  %-16s %s\n' "/no-such-fixture" "$notfound"
+          [ "$notfound" = "404" ] || { echo "::error::404 handler returned ${notfound}"; fail=1; }
+
+          # SQLite lives on a mounted volume in the cluster, but the image has
+          # to be able to write it unaided — this is what catches a /data that
+          # the app user cannot write to.
+          if docker exec smoke test -w /data; then
+            echo "  /data            writable"
+          else
+            echo "::error::/data is not writable by the app user"
+            fail=1
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo "--- container logs ---"
+            docker logs smoke 2>&1 | tail -40
+            exit 1
+          fi
+          echo "Image boots and serves."
+
+      - name: Stop smoke test container
+        if: always()
+        run: docker rm -f smoke 2>/dev/null || true
+
+      # GitOps roll-out: bump the image digest in the K8s manifest in the
+      # server-setup repo so the cluster picks up the new image. Uses a
+      # repo-scoped deploy key, not a broad PAT.
+      - name: Bump image digest in server-setup
+        env:
+          DEPLOY_KEY: ${{ secrets.SERVER_REPO_DEPLOY_KEY }}
+          NEW_DIGEST: ${{ steps.build.outputs.digest }}
+          REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          echo "$DEPLOY_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes"
+
+          git clone git@github.com:c-m-hunt/server-setup.git /tmp/server-setup
+          cd /tmp/server-setup
+          git config user.name  "sufc-tickets CI"
+          git config user.email "ci@sufc-tickets.local"
+
+          MANIFEST=tf/modules/sites/sufc-tickets/manifests/deployment.yaml
+
+          # Matches either form of the image reference, so the very first
+          # deploy rewrites the seeded `:latest` and every one after it
+          # rewrites the previous digest. A `#` delimiter because the pattern
+          # contains an alternation.
+          sed -i -E \
+            "s#(${REGISTRY}/${ECR_REPOSITORY})(@sha256:[a-f0-9]+|:[A-Za-z0-9._-]+)#\1@${NEW_DIGEST}#g" \
+            "$MANIFEST"
+
+          if git diff --quiet; then
+            echo "Image digest unchanged — nothing to push."
+            exit 0
+          fi
+
+          git add "$MANIFEST"
+          git commit -m "chore(sufc-tickets): bump image to ${NEW_DIGEST}
+
+          Auto-bump from c-m-hunt/SouthendTicketing@${GITHUB_SHA}"
+          git push origin main

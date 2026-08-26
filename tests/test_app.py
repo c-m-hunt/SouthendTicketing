@@ -304,8 +304,22 @@ def test_stale_refresh_does_not_block_the_request(seeded, monkeypatch):
 
 
 def test_fresh_fixtures_are_not_refreshed_again(seeded, monkeypatch):
-    from app import service
-    from app.models import utcnow
+    """A list that is neither empty nor stale must not be re-scraped."""
+    from app import db, service
+    from app.models import Fixture, utcnow
+
+    # Season tickets are counted separately, and ensure_fixtures() refreshes
+    # whenever none are stored regardless of staleness. Without one here the
+    # assertion below would be measuring that clause rather than staleness.
+    db.session.add(
+        Fixture(
+            product_id="prdct_test-season",
+            code="SEUTESTS01",
+            kind="season",
+            title="2026/27 Season Ticket",
+        )
+    )
+    db.session.commit()
 
     calls = []
     monkeypatch.setattr(service, "_fixtures_refreshed_at", utcnow())
