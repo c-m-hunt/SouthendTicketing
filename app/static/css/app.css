@@ -524,8 +524,18 @@ g[data-code]:focus-visible .seg-shape { stroke: var(--text); stroke-width: 18; }
   .status { margin: 0.75rem 1.1rem; }
   .meter { padding: 0 1.1rem 1rem; }
   .panel { padding: 1.1rem; }
+  /* The fixture picker takes a row of its own here, so the bar has to grow to
+     hold it — a fixed height left it hanging over the page below. */
+  .masthead__inner {
+    height: auto;
+    min-height: 54px;
+    row-gap: .55rem;
+    padding: .6rem 0 .7rem;
+  }
   .fixture-select { width: 100%; }
-  .fixture-select select { flex: 1; max-width: none; }
+  /* A select will not shrink below its longest option unless told to, and one
+     long fixture name is enough to push the whole page sideways. */
+  .fixture-select select { flex: 1; min-width: 0; max-width: none; }
 }
 
 @media (max-width: 560px) {
