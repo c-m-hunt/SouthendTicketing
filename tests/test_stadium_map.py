@@ -135,7 +135,21 @@ def test_prepare_rejects_a_map_it_does_not_recognise():
         ({"total_count": 295, "open_count": 0, "has_seats": True}, "soldout"),
         ({"total_count": 400, "open_count": 300, "has_seats": True}, "roomy"),
         ({"total_count": 400, "open_count": 40, "has_seats": True}, "tight"),
+        # An unopened away block has no seat grid to read, but it is still
+        # real seating rather than a box with no seats in it.
+        ({"code": "BLND", "total_count": 0, "open_count": 0, "has_seats": False}, "unsold"),
+        # Opened for a big away following: coloured like anywhere else.
+        ({"code": "BLNF", "total_count": 402, "open_count": 325, "has_seats": True}, "roomy"),
     ],
 )
 def test_classify(segment, expected):
     assert sm.classify(segment) == expected
+
+
+@pytest.mark.parametrize(
+    "code, expected",
+    [("BLND", True), ("BLNE", True), ("BLNF", True), ("blnd", True),
+     ("BLNA", False), ("BLN", False), ("BLA", False), (None, False), ("", False)],
+)
+def test_is_away(code, expected):
+    assert sm.is_away(code) is expected

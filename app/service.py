@@ -398,6 +398,9 @@ def build_segment_tree(segments):
         # inventory was never part of this match.
         node["in_use"] = node["total_count"] > 0 or node["open_count"] > 0
         node["sold_out"] = node["total_count"] > 0 and node["open_count"] == 0
+        # Which of the away blocks are opened varies by fixture, so the flag
+        # travels with the block rather than being inferred from its counts.
+        node["away"] = stadium_map.is_away(node["code"])
         node["state"] = stadium_map.classify(node)
         return node
 

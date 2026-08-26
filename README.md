@@ -45,12 +45,27 @@ that tells them apart:
 | Signal | Meaning | Example |
 | --- | --- | --- |
 | `totalCount > 0`, `openCount == 0` | **Sold out** | East B–D, South Upper F–J |
-| `totalCount == 0` | No sellable inventory, ever | East A, North ND/NE, West P, hospitality boxes |
+| `totalCount == 0` | No sellable inventory | East A, West P, hospitality boxes, unopened away blocks |
 
-The zero-inventory set is identical across all eleven fixtures, so those
-blocks are structurally not sold through this system (season tickets, press
-and directors, and boxes sold via the separate hospitality brand) rather than
-withheld for a particular match.
+Outside the away end the zero-inventory set is identical across all eleven
+fixtures, so those blocks are structurally not sold through this system
+(season tickets, press and directors, and boxes sold via the separate
+hospitality brand) rather than withheld for a particular match.
+
+### The away end
+
+`BLND`, `BLNE` and `BLNF` — ND, NE and NF at the far end of the North Bank —
+are the away allocation, and how much of it the club opens depends on the
+visiting support. So a zero-inventory away block means *closed for this
+fixture*, not never sold here, and the two must not look alike.
+
+`stadium_map.AWAY_BLOCKS` is the single source of that fact. Every block
+carries an `away` flag through the API, which the page uses to outline those
+blocks on the map, tag them AWAY, and list them under their own heading —
+including the ones that are shut, since which of them is open is exactly what
+someone looking at an away game wants to know. A closed away block is hatched
+rather than greyed out: ktckts publishes a seat grid only for inventory on
+sale, so `has_seats` is false for it, but the seats are plainly there.
 
 So **sold is simply `capacity - available`** over blocks that carry
 inventory, and zero-inventory blocks are excluded entirely. Whether a seat is

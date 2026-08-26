@@ -8,6 +8,9 @@
   --sold: #00285a;
   --free: #2f9e5f;
   --closed: #9aa4b2;
+  /* The away end reads as a category, not a quantity, so it gets a colour no
+     availability state uses. */
+  --away: #6d3ad1;
 
   --bg: #f0f3f7;
   --surface: #ffffff;
@@ -30,6 +33,7 @@
     --closed: #445568;
     --free: #3aad6e;
     --sold: #4f8fe0;
+    --away: #a98cff;
   }
 }
 
@@ -271,6 +275,13 @@ a { color: var(--navy-soft); }
     45deg, var(--closed) 0 3px, transparent 3px 6px
   ), var(--map-unsold-bg);
 }
+.swatch--away {
+  width: 22px;
+  height: 13px;
+  border: 2px dashed var(--away);
+  background: transparent;
+}
+.legend li.legend--away { color: var(--away); font-weight: 600; }
 
 .stands { display: grid; gap: .75rem; }
 .stand {
@@ -307,6 +318,22 @@ a { color: var(--navy-soft); }
   color: var(--text-muted);
   font-weight: 700;
 }
+.tier--away {
+  display: flex;
+  align-items: baseline;
+  gap: .5rem;
+  flex-wrap: wrap;
+  margin-top: .35rem;
+  padding-top: .5rem;
+  border-top: 1px dashed var(--border);
+  color: var(--away);
+}
+.tier__note {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  color: var(--text-muted);
+}
 
 .block {
   border: 1px solid var(--border);
@@ -323,6 +350,21 @@ a { color: var(--navy-soft); }
 /* Track = sold, fill = still available. */
 .block__bar { height: 4px; border-radius: 0; background: var(--sold); overflow: hidden; }
 .block__fill { display: block; height: 100%; border-radius: 0; background: var(--free); transition: width .4s ease; }
+.block--away { border-color: var(--away); border-left-width: 3px; }
+.block--unused { border-style: dashed; }
+.block--unused .block__count { font-style: italic; color: var(--text-muted); }
+.tag {
+  display: inline-block;
+  vertical-align: 1px;
+  padding: .05rem .3rem;
+  border-radius: 2px;
+  font-size: .62rem;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.tag--away { background: var(--away); color: #fff; }
+@media (prefers-color-scheme: dark) { .tag--away { color: #16202f; } }
 .block--closed { opacity: .55; }
 .block--closed .block__count { font-style: italic; }
 .block--closed .block__bar { background: var(--closed); }
@@ -359,6 +401,24 @@ a { color: var(--navy-soft); }
 .seg-shape.seg--soldout { fill: #c0392b; }
 .seg-shape.seg--unsold  { fill: url(#seg-hatch); }
 .seg-shape.seg--empty   { fill: var(--map-unsold-bg); }
+
+/* Layered over whatever the availability fill is, so an away block still
+   shows how much of it is left. */
+.seg-shape.seg--away {
+  stroke: var(--away);
+  stroke-width: 22;
+  stroke-dasharray: 46 26;
+  stroke-linecap: butt;
+}
+.seg-away-tag {
+  fill: #fff;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 800;
+  letter-spacing: .08em;
+  pointer-events: none;
+}
+g.seg--unsold .seg-away-tag,
+g.seg--empty .seg-away-tag { fill: var(--away); }
 
 .seg-hatch__bg   { fill: var(--map-unsold-bg); }
 .seg-hatch__line { stroke: var(--map-unsold-line); }

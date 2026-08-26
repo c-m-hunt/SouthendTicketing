@@ -25,6 +25,7 @@ def _serialise_tree(nodes):
             "in_use": n["in_use"],
             "sold_out": n["sold_out"],
             "has_seats": n.get("has_seats", False),
+            "away": n.get("away", False),
             "state": n["state"],
             "buyable": n["is_on_sale"],
             "children": _serialise_tree(n["children"]),

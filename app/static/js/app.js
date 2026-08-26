@@ -5,6 +5,20 @@
   "use strict";
 
   var nf = new Intl.NumberFormat("en-GB");
+  var SVG_NS = "http://www.w3.org/2000/svg";
+
+  /* ND, NE and NF are the away end. The server flags them; how many are
+     opened depends on the visiting support, so they are named as a set
+     wherever the page talks about them. */
+  function awayLeaves(nodes) {
+    return nodes.filter(function (node) { return node.away; });
+  }
+
+  function names(nodes) {
+    var list = nodes.map(function (node) { return node.name || node.code; });
+    if (list.length < 2) { return list.join(""); }
+    return list.slice(0, -1).join(", ") + " and " + list[list.length - 1];
+  }
 
   function el(id) { return document.getElementById(id); }
   function fmt(n) { return (n === null || n === undefined) ? "—" : nf.format(n); }
@@ -67,13 +81,18 @@
     var freeRatio = block.total ? block.open / block.total : 0;
     var classes = ["block"];
 
-    if (block.sold_out) {
+    // An away block with no inventory is closed for this fixture, not sold
+    // out; the two must not look alike.
+    if (!block.in_use) {
+      classes.push("block--unused");
+    } else if (block.sold_out) {
       classes.push("block--soldout");
     } else if (freeRatio > 0.35) {
       classes.push("block--roomy");
     } else {
       classes.push("block--tight");
     }
+    if (block.away) { classes.push("block--away"); }
     div.className = classes.join(" ");
 
     var top = document.createElement("div");
@@ -82,10 +101,19 @@
     var name = document.createElement("span");
     name.className = "block__name";
     name.textContent = block.name || block.code;
+    if (block.away) {
+      var tag = document.createElement("span");
+      tag.className = "tag tag--away";
+      tag.textContent = "Away";
+      name.appendChild(document.createTextNode(" "));
+      name.appendChild(tag);
+    }
 
     var count = document.createElement("span");
     count.className = "block__count";
-    count.textContent = block.sold_out ? "sold out" : fmt(block.open) + " left";
+    count.textContent = !block.in_use
+      ? "not in use"
+      : (block.sold_out ? "sold out" : fmt(block.open) + " left");
 
     top.appendChild(name);
     top.appendChild(count);
@@ -115,10 +143,33 @@
   }
 
   /* Blocks carrying no inventory are never sold through this system, so they
-     are dropped rather than shown as permanently empty rows. */
-  function hasSeats(node) {
-    if (node.in_use) { return true; }
-    return (node.children || []).some(hasSeats);
+     are dropped rather than shown as permanently empty rows. The away end is
+     the exception: which of ND, NE and NF is opened changes from game to
+     game, so a closed one is worth saying out loud. */
+  function isListed(node) {
+    if (node.in_use || node.away) { return true; }
+    return (node.children || []).some(isListed);
+  }
+
+  /* Heads the away run, so the blocks are read as a set rather than three
+     unrelated cards that happen to sit together. */
+  function awayHeading(away) {
+    var open = away.filter(function (node) { return node.in_use; });
+    var head = document.createElement("div");
+    head.className = "tier tier--away";
+
+    var title = document.createElement("span");
+    title.textContent = "Away supporters";
+    head.appendChild(title);
+
+    var note = document.createElement("span");
+    note.className = "tier__note";
+    note.textContent = open.length
+      ? names(open) + " open for this fixture"
+      : "none of it open for this fixture";
+    head.appendChild(note);
+
+    return head;
   }
 
   /* A stand can mix blocks sitting directly beneath it with a whole nested
@@ -126,11 +177,26 @@
      blocks therefore get their own grid rather than inheriting one from the
      parent, which would otherwise leave them stacked full-width. */
   function appendBlocks(container, nodes) {
+    var listed = nodes.filter(isListed);
     var run = null;
+    var runIsAway = null;
 
-    function flush() { run = null; }
+    function flush() { run = null; runIsAway = null; }
 
-    nodes.filter(hasSeats).forEach(function (node) {
+    // The away blocks sit at the end of the North Bank in the club's own
+    // ordering, so they break out into their own labelled grid in place.
+    function gridFor(node) {
+      var away = !!node.away;
+      if (run && runIsAway === away) { return run; }
+      if (away) { container.appendChild(awayHeading(awayLeaves(listed))); }
+      run = document.createElement("div");
+      run.className = "blocks";
+      runIsAway = away;
+      container.appendChild(run);
+      return run;
+    }
+
+    listed.forEach(function (node) {
       if (node.children && node.children.length) {
         flush();
         var tier = document.createElement("div");
@@ -142,12 +208,7 @@
         appendBlocks(nested, node.children);
         container.appendChild(nested);
       } else {
-        if (!run) {
-          run = document.createElement("div");
-          run.className = "blocks";
-          container.appendChild(run);
-        }
-        run.appendChild(blockNode(node));
+        gridFor(node).appendChild(blockNode(node));
       }
     });
   }
@@ -257,11 +318,13 @@
   }
 
   function blockLabel(block) {
-    return block.name || block.code;
+    var name = block.name || block.code;
+    return block.away ? name + " · away end" : name;
   }
 
   function blockDetail(block) {
     if (!block.in_use) {
+      if (block.away) { return "not in use for this fixture"; }
       return block.has_seats ? "not sold here" : "no seating";
     }
     if (block.sold_out) {
@@ -369,9 +432,11 @@
 
       // Groups carry the state for hit-testing; shapes carry it for fill.
       node.classList.add("seg--" + block.state);
+      if (block.away) { node.classList.add("seg--away"); }
       if (node.classList.contains("seg-shape")) { painted++; }
 
       if (node.nodeName === "g") {
+        if (block.away) { tagAwayBlock(node); }
         // aria-label rather than <title>: <title> is what makes the browser
         // show its own tooltip, and that waits about a second before
         // appearing. Screen readers still get a name from aria-label.
@@ -381,15 +446,64 @@
     });
 
     attachTooltip(host, byCode);
+    describeMap(blocks);
+  }
 
-    var unsold = blocks.filter(function (b) { return !b.in_use && b.has_seats; });
+  /* The club's own plan marks the away end with small print down the side of
+     the North Bank, which disappears once the blocks are coloured. Tagging
+     each block instead keeps it legible at any size; the tag is drawn from
+     the block's own box so it lands under the letter wherever it sits. */
+  function tagAwayBlock(group) {
+    var box;
+    try { box = group.getBBox(); } catch (err) { return; }
+    if (!box || box.width <= 0 || box.height <= 0) { return; }
+
+    var tag = document.createElementNS(SVG_NS, "text");
+    tag.setAttribute("class", "seg-away-tag");
+    tag.setAttribute("x", box.x + box.width / 2);
+    tag.setAttribute("y", box.y + box.height * 0.82);
+    tag.setAttribute("text-anchor", "middle");
+    tag.setAttribute("font-size", Math.round(Math.min(box.height * 0.22, box.width * 0.3)));
+    tag.textContent = "AWAY";
+    group.appendChild(tag);
+  }
+
+  function describeMap(blocks) {
     var caption = el("map-caption");
-    if (caption && unsold.length) {
-      caption.textContent =
-        "Hatched blocks hold real seats that aren’t sold through the club’s " +
-        "ticketing — away allocation, directors, press and broadcast: " +
-        unsold.map(function (b) { return b.name || b.code; }).join(", ") + ".";
+    if (!caption) { return; }
+
+    var away = awayLeaves(blocks);
+    var open = away.filter(function (b) { return b.in_use; });
+    // Away blocks are hatched when closed too, so they are explained first;
+    // otherwise the same hatch would carry two different meanings unlabelled.
+    var unsold = blocks.filter(function (b) {
+      return !b.in_use && b.has_seats && !b.away;
+    });
+
+    var lines = [];
+    if (away.length) {
+      var closed = away.filter(function (b) { return !b.in_use; });
+      var sentence = "Blocks " + names(away) + " in the North Bank are the away end. ";
+      if (!open.length) {
+        sentence += "None of it is in use for this fixture.";
+      } else if (!closed.length) {
+        sentence += "All of it is in use for this fixture.";
+      } else {
+        sentence += names(open) + (open.length > 1 ? " are" : " is") +
+          " in use for this fixture; " + names(closed) +
+          (closed.length > 1 ? " are" : " is") + " hatched because " +
+          (closed.length > 1 ? "they are" : "it is") + " not.";
+      }
+      lines.push(sentence);
     }
+    if (unsold.length) {
+      lines.push(
+        "The other hatched blocks hold real seats that aren’t sold through " +
+        "the club’s ticketing — directors, press and broadcast: " +
+        unsold.map(function (b) { return b.name || b.code; }).join(", ") + "."
+      );
+    }
+    caption.textContent = lines.join(" ");
   }
 
   /* --- prices --- */
@@ -488,8 +602,7 @@
     function sx(t) { return tMax === tMin ? pad.left + innerW / 2 : pad.left + (t - tMin) / (tMax - tMin) * innerW; }
     function sy(v) { return pad.top + innerH - (v - yMin) / (yMax - yMin) * innerH; }
 
-    var NS = "http://www.w3.org/2000/svg";
-    var svg = document.createElementNS(NS, "svg");
+    var svg = document.createElementNS(SVG_NS, "svg");
     svg.setAttribute("viewBox", "0 0 " + W + " " + H);
     svg.setAttribute("role", "img");
     svg.setAttribute("aria-label", "Tickets sold over time");
@@ -498,13 +611,13 @@
     for (var i = 0; i <= 3; i++) {
       var v = yMin + (yMax - yMin) * (i / 3);
       var y = sy(v);
-      var line = document.createElementNS(NS, "line");
+      var line = document.createElementNS(SVG_NS, "line");
       line.setAttribute("class", "chart__grid");
       line.setAttribute("x1", pad.left); line.setAttribute("x2", W - pad.right);
       line.setAttribute("y1", y); line.setAttribute("y2", y);
       svg.appendChild(line);
 
-      var label = document.createElementNS(NS, "text");
+      var label = document.createElementNS(SVG_NS, "text");
       label.setAttribute("class", "chart__label");
       label.setAttribute("x", pad.left - 8);
       label.setAttribute("y", y + 4);
@@ -517,30 +630,30 @@
       return (idx ? "L" : "M") + sx(times[idx]).toFixed(1) + " " + sy(sold[idx]).toFixed(1);
     }).join(" ");
 
-    var area = document.createElementNS(NS, "path");
+    var area = document.createElementNS(SVG_NS, "path");
     area.setAttribute("class", "chart__area");
     area.setAttribute("d", d + " L" + sx(tMax).toFixed(1) + " " + (pad.top + innerH) +
                            " L" + sx(tMin).toFixed(1) + " " + (pad.top + innerH) + " Z");
     svg.appendChild(area);
 
-    var path = document.createElementNS(NS, "path");
+    var path = document.createElementNS(SVG_NS, "path");
     path.setAttribute("class", "chart__line");
     path.setAttribute("d", d);
     svg.appendChild(path);
 
     // end marker with a tooltip
-    var dot = document.createElementNS(NS, "circle");
+    var dot = document.createElementNS(SVG_NS, "circle");
     dot.setAttribute("class", "chart__dot");
     dot.setAttribute("cx", sx(times[times.length - 1]));
     dot.setAttribute("cy", sy(sold[sold.length - 1]));
     dot.setAttribute("r", 3.5);
-    var title = document.createElementNS(NS, "title");
+    var title = document.createElementNS(SVG_NS, "title");
     title.textContent = nf.format(sold[sold.length - 1]) + " sold";
     dot.appendChild(title);
     svg.appendChild(dot);
 
     [[tMin, "start"], [tMax, "end"]].forEach(function (pair) {
-      var t = document.createElementNS(NS, "text");
+      var t = document.createElementNS(SVG_NS, "text");
       t.setAttribute("class", "chart__label");
       t.setAttribute("x", sx(pair[0]));
       t.setAttribute("y", H - 6);

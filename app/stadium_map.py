@@ -229,6 +229,17 @@ def _make_responsive(root):
     root.set("class", "stadium-map__svg")
 
 
+# The North Bank's ND, NE and NF are the away end. How much of it is opened
+# depends on how many visiting supporters are expected, so a zero-inventory
+# away block is unused *this week* rather than never sold here.
+AWAY_BLOCKS = frozenset({"BLND", "BLNE", "BLNF"})
+
+
+def is_away(code):
+    """True for a block that belongs to the away allocation."""
+    return (code or "").strip().upper() in AWAY_BLOCKS
+
+
 def classify(segment):
     """Bucket a block for colouring.
 
@@ -241,6 +252,11 @@ def classify(segment):
     open_count = segment.get("open_count") or 0
 
     if total == 0 and open_count == 0:
+        # An unopened away block has no seat grid to read, because ktckts only
+        # publishes one for inventory on sale. It is still real seating, so it
+        # is hatched rather than greyed out like a box with no seats at all.
+        if is_away(segment.get("code")):
+            return "unsold"
         return "unsold" if segment.get("has_seats") else "empty"
     if total == 0:
         # Season tickets: total capacity unknown, but seats are available.

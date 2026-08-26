@@ -176,6 +176,35 @@ def test_build_segment_tree_nests_and_has_single_roots(seeded, spec_payload):
     assert len(set(seen)) == len(seen)
 
 
+def test_away_blocks_are_flagged_and_kept(seeded, spec_payload):
+    """ND, NE and NF are the away end, and an unopened one still has to show.
+
+    The club opens as much of it as the visiting support needs, so a block
+    with no inventory is closed for this fixture rather than never sold here.
+    """
+    from app import ktckts, service
+
+    tree = service.build_segment_tree(ktckts.parse_segments(spec_payload))
+    north = next(n for n in tree if n["code"] == "NTH")
+    blocks = {n["code"]: n for n in north["children"]}
+
+    assert {c for c, n in blocks.items() if n["away"]} == {"BLND", "BLNE", "BLNF"}
+    # Closed for this fixture: hatched, not greyed out as seatless.
+    assert blocks["BLND"]["in_use"] is False
+    assert blocks["BLND"]["state"] == "unsold"
+    # Opened, and coloured by what is left like any other block.
+    assert blocks["BLNF"]["in_use"] is True
+    assert blocks["BLNF"]["state"] == "roomy"
+    assert blocks["BLNA"]["away"] is False
+
+
+def test_api_latest_carries_the_away_flag(seeded, client):
+    data = client.get("/api/SEUTESTH01/latest").get_json()
+    north = next(s for s in data["stands"] if s["code"] == "NTH")
+    away = {b["code"] for b in north["children"] if b["away"]}
+    assert away == {"BLND", "BLNE", "BLNF"}
+
+
 # -- routes --------------------------------------------------------------
 
 

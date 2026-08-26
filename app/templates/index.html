@@ -94,12 +94,14 @@
     <h2>Roots Hall</h2>
     <p class="panel__note">
       The club&rsquo;s own stadium plan, shaded by what is left in each block.
+      The away end is outlined; not every away block is opened for every game.
     </p>
     <ul class="legend">
       <li><span class="swatch swatch--free"></span>Plenty left</li>
       <li><span class="swatch swatch--tight"></span>Selling out</li>
       <li><span class="swatch swatch--soldout"></span>Sold out</li>
       <li><span class="swatch swatch--unsold"></span>Not sold here</li>
+      <li class="legend--away"><span class="swatch swatch--away"></span>Away end &mdash; ND, NE, NF</li>
     </ul>
     <div class="stadium-map" id="stadium-map" role="img"
          aria-label="Roots Hall seating plan shaded by availability"></div>
@@ -110,8 +112,10 @@
     <h2>Availability by stand</h2>
     <p class="panel__note">
       Every block holding sellable seats, straight from the ticketing map.
-      A block showing nothing available has sold out. Blocks that carry no
-      inventory at all &mdash; East A, North ND and NE, the hospitality boxes
+      A block showing nothing available has sold out. The away end &mdash; ND,
+      NE and NF in the North Bank &mdash; is always listed, including the
+      blocks the club hasn&rsquo;t opened for this fixture. Blocks that carry
+      no inventory at all &mdash; East A, West P, the hospitality boxes
       &mdash; are never sold here and are left out entirely.
     </p>
     <div id="stands" class="stands"></div>
