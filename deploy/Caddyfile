@@ -1,8 +1,0 @@
-# SITE_ADDRESS is the public address Caddy answers on.
-#   :80                     plain HTTP, reachable by IP (the default)
-#   tickets.example.com     a real domain; Caddy then gets a Let's Encrypt
-#                           certificate automatically and redirects HTTP to HTTPS
-{$SITE_ADDRESS::80} {
-	encode gzip
-	reverse_proxy web:8080
-}

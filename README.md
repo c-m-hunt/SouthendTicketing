@@ -153,6 +153,48 @@ builder, and only the resulting venv and source reach the runtime image. It
 runs as a non-root user, and the database lives on a `/data` volume so it
 survives redeploys — `DATABASE_URL` already points there.
 
+## Deployment
+
+Live at **https://sufc-tickets.chris-hunt.net**, on a DigitalOcean Kubernetes
+cluster. Pushing to `main` is the whole deploy:
+
+```
+push to main
+  └─ .github/workflows/deploy.yml
+       ├─ tests must pass
+       ├─ build, push to ECR (sites/sufc-tickets)
+       ├─ pull the image back and prove it boots
+       └─ commit the new digest to c-m-hunt/server-setup
+            └─ Spacelift applies it to the cluster
+```
+
+AWS access is by OIDC against a role scoped to this repo and branch, so no
+long-lived keys are stored here. Two repository secrets are required:
+`AWS_DEPLOY_ROLE_ARN` and `SERVER_REPO_DEPLOY_KEY`.
+
+The smoke test is not redundant with the test job. Tests import from the source
+tree, where every file obviously exists; the image is a different set of files
+assembled by the Dockerfile, and a missing `COPY`, a dependency that only lives
+in the dev group, or an unwritable `/data` all pass the suite and still produce
+a container that dies at start-up. It runs before the digest bump, so a failure
+leaves the cluster pointing at the last image known to boot.
+
+### Cluster shape
+
+The manifests live in `tf/modules/sites/sufc-tickets` in the server-setup repo.
+
+Snapshots accumulate in SQLite on a ReadWriteOnce volume, which is what the
+sales-over-time chart is drawn from. That forces **one replica** and the
+`Recreate` strategy: a rolling update would need the new pod to attach the
+volume while the old one still holds it, and would stall on Multi-Attach. A few
+seconds of downtime per deploy buys history that survives one.
+
+A CronJob calls `/admin/refresh` every 15 minutes so the chart keeps filling
+when nobody is browsing. It goes over HTTP via the in-cluster Service rather
+than mounting the volume itself, which would require it to land on the same
+node. That endpoint is reachable through the ingress and triggers a full
+re-scrape of the club's site, so `ADMIN_TOKEN` is always set.
+
 ## HTTP API
 
 | Route | Returns |
