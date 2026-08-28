@@ -26,7 +26,9 @@ from app.models import (
 log = logging.getLogger(__name__)
 
 _client = None
+_client_lock = threading.Lock()
 _fixtures_refreshed_at = None
+_season_refreshed_at = None
 _refresh_lock = threading.Lock()
 _refresh_in_flight = False
 
@@ -40,13 +42,18 @@ _map_codes = ()
 def client():
     global _client
     if _client is None:
-        _client = KtcktsClient(
-            app.config["KTCKTS_BASE_URL"],
-            fixtures_path=app.config["KTCKTS_FIXTURES_PATH"],
-            season_path=app.config["KTCKTS_SEASON_PATH"],
-            timeout=app.config["KTCKTS_TIMEOUT"],
-            connect_timeout=app.config["KTCKTS_CONNECT_TIMEOUT"],
-        )
+        # Locked because the background refresh thread and a request thread
+        # can both arrive here cold, and two clients would mean two antiforgery
+        # sessions against a site we would rather ask once.
+        with _client_lock:
+            if _client is None:
+                _client = KtcktsClient(
+                    app.config["KTCKTS_BASE_URL"],
+                    fixtures_path=app.config["KTCKTS_FIXTURES_PATH"],
+                    season_path=app.config["KTCKTS_SEASON_PATH"],
+                    timeout=app.config["KTCKTS_TIMEOUT"],
+                    connect_timeout=app.config["KTCKTS_CONNECT_TIMEOUT"],
+                )
     return _client
 
 
@@ -83,6 +90,8 @@ def refresh_season_fixtures():
         fixture.kind = "season"
 
     db.session.commit()
+    global _season_refreshed_at
+    _season_refreshed_at = utcnow()
     log.info("Season fixture refresh: %s added, %s updated", added, updated)
     return added, updated
 
@@ -122,6 +131,18 @@ def refresh_fixtures():
     return added, updated
 
 
+def _is_stale(stamp):
+    """True when an attempt stamp is missing or older than the refresh window.
+
+    Stamps record the last *attempt*, not the last success, so a scrape that
+    keeps failing backs off for the full window instead of being retried on
+    every request.
+    """
+    if stamp is None:
+        return True
+    return (utcnow() - stamp).total_seconds() > app.config["FIXTURE_REFRESH_SECONDS"]
+
+
 def fixtures_are_stale():
     """True when the fixture list has not been re-scraped recently.
 
@@ -129,10 +150,12 @@ def fixtures_are_stale():
     the club adds a match, so any timestamp on them would read as stale
     forever. Under multiple workers each simply refreshes on its own hour.
     """
-    if _fixtures_refreshed_at is None:
-        return True
-    age = (utcnow() - _fixtures_refreshed_at).total_seconds()
-    return age > app.config["FIXTURE_REFRESH_SECONDS"]
+    return _is_stale(_fixtures_refreshed_at)
+
+
+def season_is_stale():
+    """True when the season ticket listing has not been re-scraped recently."""
+    return _is_stale(_season_refreshed_at)
 
 
 def _refresh_fixtures_in_background():
@@ -145,13 +168,20 @@ def _refresh_fixtures_in_background():
         _refresh_in_flight = True
 
     def run():
-        global _refresh_in_flight, _fixtures_refreshed_at
+        global _refresh_in_flight, _fixtures_refreshed_at, _season_refreshed_at
         try:
             with app.app_context():
                 refresh_fixtures()
                 try:
                     refresh_season_fixtures()
                 except Exception:  # noqa: BLE001 - season refresh failure is non-fatal
+                    # Stamped on the way out even though it failed. Nothing was
+                    # stored, so the "no season fixtures" condition that sent us
+                    # here is still true, and without a stamp the very next
+                    # request would start another scrape — one full re-read of
+                    # the club's site per page view, for as long as the season
+                    # page stays broken.
+                    _season_refreshed_at = utcnow()
                     log.exception("Background season fixture refresh failed")
         except Exception:  # noqa: BLE001 - the stale list still renders
             _fixtures_refreshed_at = utcnow()
@@ -169,6 +199,12 @@ def ensure_fixtures():
     Only an empty match fixture table blocks the request. Once some are known,
     staleness is resolved in the background. Season fixtures are also fetched in
     the background on first load and on each normal stale-check cycle.
+
+    Both triggers are rate limited by their own attempt stamp. Having no season
+    fixtures stored is a reason to go and look, but only once per refresh
+    window: the season page is scraped, so it will eventually change shape, and
+    an unthrottled "none stored" test turns every page view into a full
+    re-scrape of the club's site.
     """
     match_count = db.session.scalar(
         select(db.func.count(Fixture.id)).where(Fixture.kind == "match")
@@ -183,7 +219,7 @@ def ensure_fixtures():
     season_count = db.session.scalar(
         select(db.func.count(Fixture.id)).where(Fixture.kind == "season")
     )
-    if season_count == 0 or fixtures_are_stale():
+    if (season_count == 0 and season_is_stale()) or fixtures_are_stale():
         _refresh_fixtures_in_background()
     return 0, 0
 
@@ -320,6 +356,39 @@ def refresh_all(force_snapshot=True):
             log.exception("Refresh failed for %s", fixture.code)
             results.append((fixture.code, f"error: {exc}"))
     return results
+
+
+def count_segment_snapshots(older_than_days):
+    """How many per-block rows are older than the given age."""
+    cutoff = utcnow() - dt.timedelta(days=older_than_days)
+    return db.session.scalar(
+        select(db.func.count(SegmentSnapshot.id))
+        .join(Snapshot, Snapshot.id == SegmentSnapshot.snapshot_id)
+        .where(Snapshot.captured_at < cutoff)
+    )
+
+
+def prune_segment_snapshots(older_than_days):
+    """Delete per-block rows older than the given age. Returns the count.
+
+    ``segment_snapshot`` is the largest table by a wide margin — roughly thirty
+    rows for every snapshot — and nothing in the app reads it back; the chart
+    and every API response are drawn from ``snapshot`` alone. It is kept
+    because per-block history is worth having later, but on a fixed volume it
+    is also the table that will fill the disk first.
+
+    Deliberately not wired into start-up or any request path: this deletes
+    history, so it runs when somebody asks it to and not as a side effect of a
+    deploy.
+    """
+    cutoff = utcnow() - dt.timedelta(days=older_than_days)
+    stale = select(Snapshot.id).where(Snapshot.captured_at < cutoff)
+    deleted = db.session.query(SegmentSnapshot).filter(
+        SegmentSnapshot.snapshot_id.in_(stale)
+    ).delete(synchronize_session=False)
+    db.session.commit()
+    log.info("Pruned %s segment snapshot rows older than %s days", deleted, older_than_days)
+    return deleted
 
 
 def venue_map():
