@@ -24,6 +24,16 @@ KTCKTS_CONNECT_TIMEOUT = int(os.environ.get("KTCKTS_CONNECT_TIMEOUT", "5"))
 AVAILABILITY_CACHE_SECONDS = int(os.environ.get("AVAILABILITY_CACHE_SECONDS", "120"))
 SNAPSHOT_MIN_INTERVAL_SECONDS = int(os.environ.get("SNAPSHOT_MIN_INTERVAL_SECONDS", "600"))
 
+# The remaining JSON endpoints read only from the database, but they are read
+# on every page view and the history one grows all season, so they are cached
+# too. The TTLs are matched to how often the underlying data can actually
+# change rather than to how often the page asks: snapshots land every fifteen
+# minutes at most, so a five-minute history cache still never shows a reading
+# late. Set any of these to 0 to serve that endpoint uncached.
+FIXTURES_CACHE_SECONDS = int(os.environ.get("FIXTURES_CACHE_SECONDS", "60"))
+HISTORIC_CACHE_SECONDS = int(os.environ.get("HISTORIC_CACHE_SECONDS", "300"))
+PRICES_CACHE_SECONDS = int(os.environ.get("PRICES_CACHE_SECONDS", "300"))
+
 # The fixture list changes rarely; refresh it lazily rather than per request.
 FIXTURE_REFRESH_SECONDS = int(os.environ.get("FIXTURE_REFRESH_SECONDS", "3600"))
 

@@ -162,7 +162,16 @@ Settings).
 uv run southend-tickets fixtures          # re-scrape the fixture list
 uv run southend-tickets refresh           # snapshot every fixture (for cron)
 uv run southend-tickets show SEU2627H03   # print current availability
+uv run southend-tickets prune --days 180  # report old per-block rows
+uv run southend-tickets prune --days 180 --apply   # and delete them
 ```
+
+`prune` is the only command that removes anything, and it reports rather than
+deletes unless given `--apply`. It touches `segment_snapshot` alone — roughly
+thirty rows per snapshot, nothing in the app reads them back, and on a fixed
+volume it is the table that fills the disk first. The stadium-wide `snapshot`
+rows the chart is drawn from are never touched, so the sales curve survives a
+prune intact. Nothing runs it automatically.
 
 A refresh every 10–15 minutes via cron gives a useful sales curve:
 
@@ -189,9 +198,12 @@ All optional, all via environment variables:
 | --- | --- | --- |
 | `DATABASE_URL` | `sqlite:///app.db` | Database location |
 | `AVAILABILITY_CACHE_SECONDS` | `120` | How long a live read is cached |
+| `FIXTURES_CACHE_SECONDS` | `60` | How long `/api/fixtures` is cached |
+| `HISTORIC_CACHE_SECONDS` | `300` | How long `/api/<code>/historic` is cached |
+| `PRICES_CACHE_SECONDS` | `300` | How long `/api/<code>/prices` is cached |
 | `SNAPSHOT_MIN_INTERVAL_SECONDS` | `600` | Minimum gap between stored snapshots |
 | `FIXTURE_REFRESH_SECONDS` | `3600` | How often the fixture list is re-scraped |
-| `ADMIN_TOKEN` | unset | If set, required for `/admin/*` |
+| `ADMIN_TOKEN` | unset | **Required** for `/admin/*`; unset means they refuse everyone |
 | `KTCKTS_BASE_URL` | the club's site | Override for testing |
 
 ### Docker
@@ -246,7 +258,51 @@ A CronJob calls `/admin/refresh` every 15 minutes so the chart keeps filling
 when nobody is browsing. It goes over HTTP via the in-cluster Service rather
 than mounting the volume itself, which would require it to land on the same
 node. That endpoint is reachable through the ingress and triggers a full
-re-scrape of the club's site, so `ADMIN_TOKEN` is always set.
+re-scrape of the club's site, so `ADMIN_TOKEN` must be set: with no token the
+`/admin/*` endpoints refuse every caller rather than serving a full re-scrape
+to whoever finds the URL. Prefer passing it as an `X-Admin-Token` header over
+`?token=`, which ends up in ingress access logs. Overlapping runs are declined
+with a 409, so a slow scrape cannot be stacked up by a retrying cron.
+
+## Holding up under load
+
+The site is small, but everything it serves is either scraped from the club or
+read from a SQLite file on one volume, and both are easier to overrun than they
+look. What keeps it standing:
+
+**Every JSON endpoint is cached, in the process and at the client.** Live
+availability was already cached; the history and price endpoints now are too,
+and all of them carry `Cache-Control` and an `ETag`, so a browser refresh or
+anything in front of the ingress can answer without reaching Python. The
+history endpoint is the one that matters — it reads every snapshot for a
+fixture and thins them in Python, so its cost grows for the whole time a match
+is on sale. Cache TTLs are matched to how often the data can actually change
+rather than to how often the page asks: snapshots land every ten minutes at
+most, so a five-minute cache never shows a reading late.
+
+**One upstream read is shared.** A cache expiring under traffic used to mean
+every request in the gap making its own pair of calls to the club's site. The
+first caller now fetches while the rest wait behind a per-fixture lock and then
+find the cache warm.
+
+**Scrapes are rate limited even when they fail.** The fixture and season
+listings each carry an attempt stamp, not a success stamp. A scrape that keeps
+failing backs off for the full refresh window rather than being retried on
+every page view.
+
+**Junk paths stop at routing.** `/<game_code>` sits at the root, so a scanner
+probing for `/.env` reached the view and did four database queries before
+rendering a 404. The route now matches the shape of a fixture code, and
+anything else is refused before any of that.
+
+**Reads and writes do not block each other.** SQLite runs in WAL mode with a
+busy timeout, so a page view writing a snapshot no longer stalls every reader,
+and two writers landing together wait rather than failing with "database is
+locked".
+
+Gunicorn runs threaded rather than with more workers: the database is a single
+file on one volume, so extra processes would only contend for it, while what is
+actually being waited on is the club's site.
 
 ## HTTP API
 

@@ -143,6 +143,19 @@ jobs:
           printf '  %-16s %s\n' "/no-such-fixture" "$notfound"
           [ "$notfound" = "404" ] || { echo "::error::404 handler returned ${notfound}"; fail=1; }
 
+          # The container runs without ADMIN_TOKEN, which is exactly the state
+          # in which /admin/* must refuse rather than serve a full re-scrape of
+          # the club's site to whoever finds the URL.
+          admin=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://localhost:8080/admin/refresh)
+          printf '  %-16s %s\n' "/admin/refresh" "$admin"
+          [ "$admin" = "403" ] || { echo "::error::/admin/refresh returned ${admin} with no token set"; fail=1; }
+
+          # A path that is not a fixture code must be turned away at routing,
+          # before the view does any database work.
+          junk=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 http://localhost:8080/.env)
+          printf '  %-16s %s\n' "/.env" "$junk"
+          [ "$junk" = "404" ] || { echo "::error::/.env returned ${junk}"; fail=1; }
+
           # SQLite lives on a mounted volume in the cluster, but the image has
           # to be able to write it unaided — this is what catches a /data that
           # the app user cannot write to.
