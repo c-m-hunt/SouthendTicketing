@@ -1,6 +1,8 @@
 """Tests for ingest and the HTTP routes, using recorded payloads."""
 
 import datetime as dt
+import threading
+import time
 
 import pytest
 
@@ -61,6 +63,7 @@ def seeded(flask_app, spec_payload, detail_payload, monkeypatch):
     fake = FakeClient(FIXTURE_ROWS, availability)
     monkeypatch.setattr(service, "client", lambda: fake)
     monkeypatch.setattr(service, "_fixtures_refreshed_at", None)
+    monkeypatch.setattr(service, "_season_refreshed_at", None)
     flask_app.cache.clear()
 
     service.refresh_fixtures()
@@ -575,3 +578,275 @@ def test_stands_carry_a_map_state(seeded, client):
             walk(node["children"])
 
     walk(data["stands"])
+
+
+# -- load shedding -------------------------------------------------------
+
+
+def test_failing_season_scrape_backs_off(flask_app, monkeypatch):
+    """A broken season page must not mean a re-scrape on every page view.
+
+    ``ensure_fixtures`` goes looking whenever no season fixtures are stored.
+    Nothing is stored when the scrape fails, so without a stamp recording the
+    attempt that condition stays true and each request starts another full
+    read of the club's site.
+    """
+    from app import db, service
+    from app.models import Fixture, utcnow
+
+    db.session.add(
+        Fixture(
+            product_id="prdct_test-match",
+            code="SEUTESTH09",
+            kind="match",
+            kickoff=utcnow() + dt.timedelta(days=7),
+        )
+    )
+    db.session.commit()
+
+    calls = {"fixtures": 0, "season": 0}
+
+    def ok_fixtures():
+        calls["fixtures"] += 1
+        return 0, 1
+
+    def broken_season():
+        calls["season"] += 1
+        raise RuntimeError("season page markup changed")
+
+    monkeypatch.setattr(service, "refresh_fixtures", ok_fixtures)
+    monkeypatch.setattr(service, "refresh_season_fixtures", broken_season)
+    monkeypatch.setattr(service, "_fixtures_refreshed_at", utcnow())
+    monkeypatch.setattr(service, "_season_refreshed_at", None)
+
+    for _ in range(5):
+        service.ensure_fixtures()
+        for thread in threading.enumerate():
+            if thread.name == "fixture-refresh":
+                thread.join(5)
+
+    assert calls["season"] == 1, "five page views should cost one attempt, not five"
+    assert calls["fixtures"] == 1
+
+
+def test_junk_paths_never_reach_the_database(client, monkeypatch):
+    """Scanners probing the root must be turned away at routing."""
+    from app import service
+
+    calls = []
+    monkeypatch.setattr(service, "ensure_fixtures", lambda: calls.append(1))
+
+    for path in ("/.env", "/wp-login.php", "/robots.txt", "/a"):
+        assert client.get(path).status_code == 404, path
+
+    assert calls == [], "no junk path should have loaded fixtures"
+
+
+def test_real_fixture_codes_still_route(seeded, client):
+    """The converter must not be so tight that it turns away real codes."""
+    assert client.get("/SEUTESTH01").status_code == 200
+    # Season codes come from a package slug, which may carry a hyphen.
+    assert client.get("/SEU2627-HST").status_code == 404, "unknown, but routed"
+    assert client.get("/NOPE").status_code == 404
+
+
+def test_concurrent_cache_misses_make_one_upstream_call(seeded, client, flask_app):
+    """Fifty visitors arriving together must not mean fifty upstream reads."""
+    from app import service
+
+    flask_app.cache.clear()
+    slow = seeded
+    original = slow.fetch_availability
+
+    def fetch_availability(product_id, include_seats=True):
+        time.sleep(0.2)  # widen the window between the cache check and the fill
+        return original(product_id, include_seats)
+
+    slow.fetch_availability = fetch_availability
+    before = slow.calls
+
+    results = []
+    threads = [
+        threading.Thread(
+            target=lambda: results.append(
+                flask_app.test_client().get("/api/SEUTESTH01/latest").status_code
+            )
+        )
+        for _ in range(8)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(10)
+
+    assert results == [200] * 8
+    assert slow.calls - before == 1, "the fetch should happen once and be shared"
+
+
+def test_admin_refuses_when_no_token_is_configured(seeded, client, flask_app):
+    """An unset token is a misconfiguration, not an open door."""
+    flask_app.config["ADMIN_TOKEN"] = None
+    assert client.get("/admin/load").status_code == 403
+    assert client.get("/admin/refresh").status_code == 403
+
+
+def test_admin_accepts_the_token_as_a_header(seeded, client, flask_app):
+    flask_app.config["ADMIN_TOKEN"] = "s3cret"
+    try:
+        response = client.get("/admin/load", headers={"X-Admin-Token": "s3cret"})
+        assert response.status_code == 302
+        assert client.get("/admin/load", headers={"X-Admin-Token": "wrong"}).status_code == 403
+    finally:
+        flask_app.config["ADMIN_TOKEN"] = None
+
+
+# -- endpoint caching ----------------------------------------------------
+
+
+def test_api_historic_is_cached(seeded, client, flask_app, monkeypatch):
+    from app import service
+
+    service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
+    flask_app.cache.clear()
+
+    calls = []
+    original = service.thin_history
+    monkeypatch.setattr(
+        service,
+        "thin_history",
+        lambda *a, **k: (calls.append(1), original(*a, **k))[1],
+    )
+
+    first = client.get("/api/SEUTESTH01/historic")
+    second = client.get("/api/SEUTESTH01/historic")
+
+    assert first.get_json() == second.get_json()
+    assert len(calls) == 1, "the second read should come from the cache"
+
+
+def test_api_prices_is_cached(seeded, client, flask_app):
+    from app import service
+
+    service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
+    flask_app.cache.clear()
+
+    assert client.get("/api/SEUTESTH01/prices").get_json()
+    # Emptying the table would show through immediately if this were uncached.
+    from app import db
+    from app.models import FixturePrice
+
+    db.session.query(FixturePrice).delete()
+    db.session.commit()
+
+    assert client.get("/api/SEUTESTH01/prices").get_json(), "should still serve the cached list"
+
+
+def test_cached_endpoints_can_be_turned_off(seeded, client, flask_app):
+    """A TTL of zero serves live data and tells clients not to store it."""
+    flask_app.config["PRICES_CACHE_SECONDS"] = 0
+    try:
+        flask_app.cache.clear()
+        response = client.get("/api/SEUTESTH01/prices")
+        assert response.headers["Cache-Control"] == "no-store"
+    finally:
+        flask_app.config["PRICES_CACHE_SECONDS"] = 300
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["/api/fixtures", "/api/SEUTESTH01/latest", "/api/SEUTESTH01/historic",
+     "/api/SEUTESTH01/prices"],
+)
+def test_json_endpoints_are_publicly_cacheable(seeded, client, path):
+    response = client.get(path)
+    assert response.status_code == 200
+    assert "public" in response.headers["Cache-Control"]
+    assert "max-age=" in response.headers["Cache-Control"]
+    assert response.headers.get("ETag")
+
+
+def test_repeat_request_revalidates_to_304(seeded, client):
+    """A browser coming back with the ETag should get no body."""
+    first = client.get("/api/SEUTESTH01/historic")
+    again = client.get(
+        "/api/SEUTESTH01/historic", headers={"If-None-Match": first.headers["ETag"]}
+    )
+    assert again.status_code == 304
+    assert again.get_data() == b""
+
+
+def test_unknown_fixture_is_not_cached(seeded, client):
+    """A 404 must not be stored under the path of a fixture added later."""
+    assert client.get("/api/SEUTESTZZ99/historic").status_code == 404
+    assert client.get("/api/SEUTESTZZ99/prices").status_code == 404
+
+
+# -- retention -----------------------------------------------------------
+
+
+def test_prune_reports_before_it_deletes(seeded, flask_app):
+    """The default run must not touch anything."""
+    from app import db, service
+    from app.models import SegmentSnapshot, Snapshot, utcnow
+
+    service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
+    snapshot = db.session.query(Snapshot).first()
+    snapshot.captured_at = utcnow() - dt.timedelta(days=400)
+    db.session.commit()
+
+    before = db.session.query(SegmentSnapshot).count()
+    assert before > 0
+    assert service.count_segment_snapshots(180) == before
+    assert db.session.query(SegmentSnapshot).count() == before, "counting must not delete"
+
+    deleted = service.prune_segment_snapshots(180)
+    assert deleted == before
+    assert db.session.query(SegmentSnapshot).count() == 0
+    # The chart is drawn from these, so they must survive the prune.
+    assert db.session.query(Snapshot).count() > 0
+
+
+def test_prune_keeps_recent_rows(seeded):
+    from app import db, service
+    from app.models import SegmentSnapshot
+
+    service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
+    before = db.session.query(SegmentSnapshot).count()
+
+    assert service.prune_segment_snapshots(180) == 0
+    assert db.session.query(SegmentSnapshot).count() == before
+
+
+# -- sqlite pragmas ------------------------------------------------------
+
+
+def test_database_uses_wal_and_waits_on_a_busy_writer(flask_app):
+    """Concurrent readers and writers, and a lock contest that waits."""
+    from app import db
+
+    with db.engine.connect() as conn:
+        assert conn.exec_driver_sql("PRAGMA journal_mode").scalar().lower() == "wal"
+        assert conn.exec_driver_sql("PRAGMA busy_timeout").scalar() == 5000
+        assert conn.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+
+
+def test_cache_key_ignores_the_case_of_the_code(seeded, client, flask_app, monkeypatch):
+    """Case variants must share one entry, not each claim their own."""
+    from app import service
+
+    service.refresh_fixture(service.find_fixture("SEUTESTH01"), force_snapshot=True)
+    flask_app.cache.clear()
+
+    calls = []
+    original = service.thin_history
+    monkeypatch.setattr(
+        service,
+        "thin_history",
+        lambda *a, **k: (calls.append(1), original(*a, **k))[1],
+    )
+
+    first = client.get("/api/SEUTESTH01/historic")
+    second = client.get("/api/seutesth01/historic")
+
+    assert first.get_json() == second.get_json()
+    assert len(calls) == 1, "differing only in case should not mean a second read"

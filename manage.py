@@ -4,6 +4,7 @@
     uv run southend-tickets fixtures          # re-scrape the fixture list
     uv run southend-tickets refresh           # a snapshot for every match
     uv run southend-tickets show SEU2627H03   # print current availability
+    uv run southend-tickets prune --days 180  # drop old per-block rows
 
 Also runnable directly as ``python manage.py <command>``.
 """
@@ -61,6 +62,29 @@ def cmd_show(args):
     return 0
 
 
+def cmd_prune(args):
+    """Drop per-block history older than the retention window.
+
+    Reports and stops unless --apply is given: this deletes rows from the one
+    table with no other copy of the data, so the default is to say what would
+    go rather than to go and do it.
+    """
+    doomed = service.count_segment_snapshots(args.days)
+    if not doomed:
+        print(f"Nothing older than {args.days} days.")
+        return 0
+    if not args.apply:
+        print(
+            f"{doomed:,} segment snapshot rows are older than {args.days} days.\n"
+            "Re-run with --apply to delete them. Stadium-wide snapshots, which "
+            "the chart is drawn from, are never touched."
+        )
+        return 0
+    deleted = service.prune_segment_snapshots(args.days)
+    print(f"Deleted {deleted:,} segment snapshot rows.")
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -71,6 +95,11 @@ def main():
     show = sub.add_parser("show", help="print availability for one fixture")
     show.add_argument("code")
     show.set_defaults(func=cmd_show)
+
+    prune = sub.add_parser("prune", help="drop old per-block snapshot rows")
+    prune.add_argument("--days", type=int, default=180, help="retention window (default 180)")
+    prune.add_argument("--apply", action="store_true", help="actually delete; otherwise report")
+    prune.set_defaults(func=cmd_prune)
 
     args = parser.parse_args()
     with app.app_context():

@@ -9,7 +9,11 @@ __pycache__/
 .playwright-mcp/
 
 # Never ship a local database into the image; the container uses /data.
+# The -wal and -shm sidecars appear once SQLite runs in WAL mode, and a
+# stale one copied in beside a fresh database is worse than useless.
 *.db
+*.db-wal
+*.db-shm
 
 # Not needed at runtime.
 tests/

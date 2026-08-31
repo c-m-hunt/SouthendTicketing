@@ -42,4 +42,11 @@ USER app
 
 EXPOSE 8080
 
-CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--workers", "2", "--timeout", "120", "wsgi:app"]
+# Threads, not more workers: the database is a single SQLite file on one
+# volume, so extra processes would contend for it, while the thing actually
+# being waited on is the club's site. Two sync workers meant two concurrent
+# requests in total, and one uncached availability read can hold a worker for
+# as long as the upstream read timeout.
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", \
+     "--workers", "2", "--threads", "4", "--worker-class", "gthread", \
+     "--timeout", "120", "wsgi:app"]

@@ -21,6 +21,7 @@ import base64
 import datetime as dt
 import logging
 import re
+import threading
 from html import unescape
 
 import requests
@@ -115,6 +116,12 @@ class KtcktsClient:
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": USER_AGENT})
         self._csrf_token = None
+        # One client is shared by every request thread and the background
+        # fixture refresh, so two of them can find the token missing or
+        # rejected at the same moment. Serialised here, the loser of the race
+        # reuses the token the winner just fetched instead of both re-reading
+        # a page to obtain one.
+        self._token_lock = threading.Lock()
 
     # -- plumbing --------------------------------------------------------
 
@@ -133,11 +140,14 @@ class KtcktsClient:
         return self._get_response(path).text
 
     def _ensure_token(self):
-        if not self._csrf_token:
-            self._get_html(self.fixtures_path)
-        if not self._csrf_token:
-            raise KtcktsError("Could not obtain a csrfToken from the ticketing site")
-        return self._csrf_token
+        if self._csrf_token:
+            return self._csrf_token
+        with self._token_lock:
+            if not self._csrf_token:
+                self._get_html(self.fixtures_path)
+            if not self._csrf_token:
+                raise KtcktsError("Could not obtain a csrfToken from the ticketing site")
+            return self._csrf_token
 
     def _post_json(self, path, product_id):
         token = self._ensure_token()
