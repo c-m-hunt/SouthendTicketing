@@ -79,10 +79,9 @@ a { color: var(--navy-soft); }
   letter-spacing: -0.015em;
 }
 .brand__mark {
-  width: 14px;
-  height: 20px;
-  border-radius: 0;
-  background: repeating-linear-gradient(90deg, var(--accent) 0 4px, rgba(255,255,255,.7) 4px 8px);
+  display: block;
+  width: 36px;
+  height: 36px;
 }
 .brand__text strong { font-weight: 800; }
 

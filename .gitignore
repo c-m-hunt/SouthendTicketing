@@ -10,4 +10,6 @@ venv/
 .pytest_cache/
 .playwright-mcp/
 *.png
+# Images the app serves are source, not screenshots.
+!app/static/**/*.png
 *.egg-info/

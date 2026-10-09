@@ -8,7 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap">
-<link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
+<link rel="icon" href="{{ url_for('static', filename='favicon.png') }}" type="image/png">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/app.css') }}">
 {% if config.GA_MEASUREMENT_ID %}
 <!-- Google tag (gtag.js) -->
@@ -26,7 +27,7 @@
 <header class="masthead">
   <div class="wrap masthead__inner">
     <a class="brand" href="{{ url_for('home') }}">
-      <span class="brand__mark" aria-hidden="true"></span>
+      <img class="brand__mark" src="{{ url_for('static', filename='img/crest.png') }}" alt="" width="36" height="36">
       <span class="brand__text">Southend <strong>Ticket Stats</strong></span>
     </a>
     {% block nav %}{% endblock %}
