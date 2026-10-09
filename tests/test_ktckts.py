@@ -336,6 +336,40 @@ def test_fetch_fixtures_parses_the_listing(fixtures_html, monkeypatch):
     assert len({f["code"] for f in fixtures}) == 11
 
 
+def _fixture_card(code, title, badge=None):
+    badge_html = f'<span class="kaizen-fixture__badge">{badge}</span>' if badge else ""
+    return f"""
+    <div>
+      <article class="kaizen-fixture">
+        {badge_html}
+        <h3 class="kaizen-fixture__title">{title}</h3>
+        <a href="/event/{code}/some-slug">Buy</a>
+      </article>
+      <div id="fixtureEnhance_prdct_{code}-0000"></div>
+    </div>"""
+
+
+@pytest.mark.parametrize(
+    "title, badge, expected",
+    [
+        ("Southend United v FC Halifax Town", "HOME", True),
+        # Cup ties carry no badge at all.
+        ("Southend United v Berkhamsted FC - Emirates FA Cup", None, True),
+        ("Boston United v Southend United", "AWAY", False),
+        ("Wealdstone V Southend United", "AWAY", False),
+        # An away game missing its badge is still caught by the title.
+        ("Boston United v Southend United", None, False),
+    ],
+)
+def test_fetch_fixtures_flags_away_games(monkeypatch, title, badge, expected):
+    client = ktckts.KtcktsClient("https://example.test")
+    html = "<html><body>" + _fixture_card("abc123", title, badge) + "</body></html>"
+    monkeypatch.setattr(client, "_get_html", lambda path: html)
+
+    [fixture] = client.fetch_fixtures()
+    assert fixture["is_home"] is expected
+
+
 def test_fetch_fixtures_raises_when_markup_changes(monkeypatch):
     client = ktckts.KtcktsClient("https://example.test")
     monkeypatch.setattr(client, "_get_html", lambda path: "<html><body>nothing</body></html>")

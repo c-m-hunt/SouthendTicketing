@@ -239,6 +239,13 @@ class KtcktsClient:
 
         sponsor = article.select_one(".kaizen-fixture__sponsor img")
         badge = (text_of(".kaizen-fixture__badge") or "HOME").strip().upper()
+        # The listing also sells our allocation for away games, priced and
+        # mapped at the other club's ground. Cup ties carry no badge, so the
+        # title's home side is checked too.
+        home_side = re.split(r"\s+v\s+", title, maxsplit=1, flags=re.IGNORECASE)[0]
+        is_home = badge != "AWAY" and (
+            home_side == title or "southend united" in home_side.lower()
+        )
 
         return {
             "product_id": product_id,
@@ -252,7 +259,7 @@ class KtcktsClient:
             "venue": text_of(".kaizen-fixture__meta .venue"),
             "competition": unescape(sponsor.get("alt")) if sponsor and sponsor.get("alt") else None,
             "kickoff": parse_kickoff(text_of(".kaizen-fixture__meta .date")),
-            "is_home": badge != "AWAY",
+            "is_home": is_home,
         }
 
     def fetch_season_fixtures(self):

@@ -454,6 +454,29 @@ def test_healthz(client):
 # -- fixture refresh scheduling -----------------------------------------
 
 
+def test_away_fixtures_are_hidden(seeded, client):
+    """Away games are on the listing, but their data is the other ground's."""
+    from app import db, service
+    from app.models import Fixture, utcnow
+
+    db.session.add(
+        Fixture(
+            product_id="prdct_test-away",
+            code="BOSUTESTHOME01",
+            kind="match",
+            title="Boston United v Southend United",
+            kickoff=utcnow() + dt.timedelta(days=1),
+            is_home=False,
+        )
+    )
+    db.session.commit()
+
+    assert [f.code for f in service.upcoming_fixtures()] == ["SEUTESTH01"]
+    assert [f["code"] for f in client.get("/api/fixtures").get_json()] == ["SEUTESTH01"]
+    assert client.get("/BOSUTESTHOME01").status_code == 404
+    assert client.get("/api/BOSUTESTHOME01/latest").status_code == 404
+
+
 def test_empty_table_loads_fixtures_synchronously(flask_app, monkeypatch):
     """With nothing to show, the first request must wait for real data."""
     from app import db, service
