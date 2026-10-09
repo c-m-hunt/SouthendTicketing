@@ -394,8 +394,8 @@ def prune_segment_snapshots(older_than_days):
 def venue_map():
     """Return the prepared stadium SVG, fetching it at most once.
 
-    Any upcoming fixture will do as the productId; the response does not vary
-    by match.
+    Any home fixture will do as the productId; the response does not vary
+    by match. An away fixture would return the other club's ground.
     """
     global _map_markup, _map_codes
 
@@ -406,7 +406,9 @@ def venue_map():
         if _map_markup is not None:
             return _map_markup, _map_codes
 
-        fixture = db.session.scalar(select(Fixture).order_by(Fixture.kickoff.asc()))
+        fixture = db.session.scalar(
+            select(Fixture).where(Fixture.is_home.is_(True)).order_by(Fixture.kickoff.asc())
+        )
         if fixture is None:
             raise LookupError("No fixture available to fetch the venue map with")
 
@@ -480,10 +482,12 @@ def thin_history(snapshots, day_start, bucket_seconds=HISTORY_BUCKET_SECONDS):
 
 def upcoming_fixtures():
     cutoff = utcnow() - dt.timedelta(hours=4)  # keep a match visible while it's on
+    # Away games are listed for our allocation, but their blocks and prices
+    # belong to the other ground and would read as Roots Hall figures.
     return list(
         db.session.scalars(
             select(Fixture)
-            .where(Fixture.kickoff >= cutoff)
+            .where(Fixture.kickoff >= cutoff, Fixture.is_home.is_(True))
             .order_by(Fixture.kickoff.asc())
         )
     )
@@ -500,7 +504,9 @@ def season_fixtures():
 def find_fixture(code):
     if not code:
         return None
-    return db.session.scalar(select(Fixture).where(Fixture.code == code.upper()))
+    return db.session.scalar(
+        select(Fixture).where(Fixture.code == code.upper(), Fixture.is_home.is_(True))
+    )
 
 
 def build_segment_tree(segments):
